@@ -38,6 +38,20 @@ def test_filename_extraction():
         ("November 9,2022.pdf", "2022-11-09", "Single digit day with comma-no space"),
         ("February 15 2023.pdf", "2023-02-15", "Full month name with day (space only)"),
 
+        # Full date patterns with ordinal indicators
+        ("JANUARY 28TH,2025.pdf", "2025-01-28", "Uppercase month with TH ordinal, no space"),
+        ("January 28th, 2025.pdf", "2025-01-28", "Mixed case with th ordinal, space"),
+        ("December 31st,2024.pdf", "2024-12-31", "st ordinal with comma, no space"),
+        ("December 31st, 2024.pdf", "2024-12-31", "st ordinal with comma and space"),
+        ("April 2nd,2023.pdf", "2023-04-02", "nd ordinal with comma, no space"),
+        ("April 2nd 2023.pdf", "2023-04-02", "nd ordinal with space only"),
+        ("May 3rd, 2024.pdf", "2024-05-03", "rd ordinal with comma and space"),
+        ("October 21ST, 2023.pdf", "2023-10-21", "Uppercase ST ordinal"),
+        ("September 1st 2025.pdf", "2025-09-01", "Single digit day with st ordinal"),
+        ("November 22ND,2024.pdf", "2024-11-22", "Uppercase ND ordinal"),
+        ("July 23RD 2023.pdf", "2023-07-23", "Uppercase RD ordinal"),
+        ("March 15th,2025.pdf", "2025-03-15", "th ordinal, comma no space"),
+
         # Quarter patterns
         ("Q2-2024-Financials.pdf", "Q2 2024", "Quarter with dash"),
         ("2024Q3_Report.pdf", "Q3 2024", "Year-quarter format"),
