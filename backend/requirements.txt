@@ -13,6 +13,7 @@ aiofiles
 python-dotenv
 httpx
 pypdf
+pdfplumber
 python-docx
 Pillow
 python-dateutil

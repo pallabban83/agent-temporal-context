@@ -18,7 +18,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import LinkIcon from '@mui/icons-material/Link';
 import DescriptionIcon from '@mui/icons-material/Description';
-import { queryCorpus, extractTemporalContext } from '../api';
+import { queryIndex, extractTemporalContext } from '../api';
 
 function QueryInterface() {
   const [query, setQuery] = useState('');
@@ -49,7 +49,7 @@ function QueryInterface() {
         }
       }
 
-      const response = await queryCorpus(query, topK, filter);
+      const response = await queryIndex(query, topK, filter);
 
       if (response.success) {
         setResults(response.data);
@@ -217,7 +217,7 @@ function QueryInterface() {
                               {result.title || `Document ${index + 1}`}
                             </Typography>
                             <Chip
-                              label={`${(result.score * 100).toFixed(1)}% match`}
+                              label={`Relevance: ${result.citation?.score ? (result.citation.score * 100).toFixed(2) + '%' : result.score ? (result.score * 100).toFixed(2) + '%' : 'N/A'}`}
                               color="primary"
                               size="small"
                             />
@@ -313,6 +313,31 @@ function QueryInterface() {
                           {/* Metadata Tags */}
                           {result.citation && (
                             <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                              {result.citation.page_number !== undefined && (
+                                <Chip
+                                  icon={<DescriptionIcon />}
+                                  label={`Page ${result.citation.page_number}`}
+                                  size="small"
+                                  variant="outlined"
+                                  color="primary"
+                                />
+                              )}
+                              {result.citation.page_chunk_index !== undefined && (
+                                <Chip
+                                  label={`Chunk ${result.citation.page_chunk_index}`}
+                                  size="small"
+                                  variant="outlined"
+                                  color="primary"
+                                />
+                              )}
+                              {result.citation.quality_score !== undefined && (
+                                <Chip
+                                  label={`Quality: ${(result.citation.quality_score * 100).toFixed(0)}%`}
+                                  size="small"
+                                  variant="outlined"
+                                  color={result.citation.quality_score > 0.7 ? 'success' : 'default'}
+                                />
+                              )}
                               {result.citation.date && (
                                 <Chip
                                   icon={<AccessTimeIcon />}

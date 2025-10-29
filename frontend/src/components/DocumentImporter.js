@@ -14,13 +14,16 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction
+  ListItemSecondaryAction,
+  Checkbox
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import { importDocuments, uploadDocument } from '../api';
+import CloudIcon from '@mui/icons-material/Cloud';
+import FolderIcon from '@mui/icons-material/Folder';
+import { importDocuments, uploadDocument, importFromGCS } from '../api';
 
 function DocumentImporter() {
   const [documents, setDocuments] = useState([]);
@@ -30,8 +33,11 @@ function DocumentImporter() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [file, setFile] = useState(null);
-  const [chunkSize, setChunkSize] = useState(300);
-  const [chunkOverlap, setChunkOverlap] = useState(60);
+  const [chunkSize, setChunkSize] = useState(1000);
+  const [chunkOverlap, setChunkOverlap] = useState(200);
+  const [gcsPath, setGcsPath] = useState('');
+  const [gcsRecursive, setGcsRecursive] = useState(true);
+  const [gcsResults, setGcsResults] = useState(null);
 
   const handleAddDocument = () => {
     if (!currentDoc.content.trim()) {
@@ -129,6 +135,48 @@ function DocumentImporter() {
     }
   };
 
+  const handleGCSImport = async () => {
+    if (!gcsPath.trim()) {
+      setError('Please enter a GCS path');
+      return;
+    }
+
+    if (!gcsPath.startsWith('gs://')) {
+      setError('GCS path must start with gs://');
+      return;
+    }
+
+    // Validate chunk parameters
+    if (chunkOverlap >= chunkSize) {
+      setError('Chunk overlap must be less than chunk size');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    setGcsResults(null);
+
+    try {
+      const response = await importFromGCS(gcsPath, documentDate, gcsRecursive, chunkSize, chunkOverlap);
+
+      if (response.success) {
+        setGcsResults(response.data);
+        setSuccess(
+          `Successfully imported ${response.data.files_imported} of ${response.data.files_found} files from GCS (Chunk size: ${chunkSize}, Overlap: ${chunkOverlap})`
+        );
+        setGcsPath('');
+        setDocumentDate('');
+      } else {
+        setError('Failed to import from GCS');
+      }
+    } catch (err) {
+      setError(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Box>
       <Typography variant="h5" gutterBottom>
@@ -199,7 +247,7 @@ function DocumentImporter() {
                 onChange={(e) => setDocumentDate(e.target.value)}
                 margin="normal"
                 InputLabelProps={{ shrink: true }}
-                helperText="Specify a date for temporal context"
+                helperText="Specify a date for temporal context. If not provided, the system will attempt to extract it from the filename."
               />
 
               <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
@@ -275,7 +323,7 @@ function DocumentImporter() {
                 onChange={(e) => setDocumentDate(e.target.value)}
                 margin="normal"
                 InputLabelProps={{ shrink: true }}
-                helperText="Specify a date for temporal context"
+                helperText="Specify a date for temporal context. If not provided, the system will attempt to extract it from the filename."
               />
 
               <Button
@@ -287,6 +335,175 @@ function DocumentImporter() {
               >
                 Add to Queue
               </Button>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* GCS Import Section */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <CloudIcon sx={{ mr: 1, color: 'info.main' }} />
+                <Typography variant="h6">Import from GCS</Typography>
+              </Box>
+
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Import files directly from Google Cloud Storage without re-uploading
+              </Typography>
+
+              <TextField
+                fullWidth
+                label="GCS Path"
+                placeholder="gs://bucket-name/path/to/folder/ or gs://bucket-name/file.pdf"
+                value={gcsPath}
+                onChange={(e) => setGcsPath(e.target.value)}
+                margin="normal"
+                helperText="Enter a GCS path to a file or folder"
+              />
+
+              <TextField
+                fullWidth
+                label="Document Date (Optional)"
+                placeholder="2023-12-31"
+                value={documentDate}
+                onChange={(e) => setDocumentDate(e.target.value)}
+                margin="normal"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                helperText="Specify a date for temporal context. If not provided, the system will attempt to extract it from the filename."
+              />
+
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                Chunking Configuration
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="Chunk Size"
+                    type="number"
+                    value={chunkSize}
+                    onChange={(e) => setChunkSize(parseInt(e.target.value) || 1000)}
+                    inputProps={{ min: 100, max: 5000, step: 100 }}
+                    helperText="Characters per chunk"
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="Chunk Overlap"
+                    type="number"
+                    value={chunkOverlap}
+                    onChange={(e) => setChunkOverlap(parseInt(e.target.value) || 200)}
+                    inputProps={{ min: 0, max: 500, step: 50 }}
+                    helperText="Overlap between chunks"
+                  />
+                </Grid>
+              </Grid>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', mt: 2, mb: 2 }}>
+                <Checkbox
+                  checked={gcsRecursive}
+                  onChange={(e) => setGcsRecursive(e.target.checked)}
+                  id="recursive-checkbox"
+                />
+                <label htmlFor="recursive-checkbox">
+                  <Typography variant="body2">
+                    <FolderIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                    Import all files from subfolders recursively
+                  </Typography>
+                </label>
+              </Box>
+
+              <Button
+                fullWidth
+                variant="contained"
+                onClick={handleGCSImport}
+                disabled={loading}
+                startIcon={loading ? <CircularProgress size={20} /> : <CloudIcon />}
+              >
+                {loading ? 'Importing from GCS...' : 'Import from GCS'}
+              </Button>
+
+              {/* Results Display */}
+              {gcsResults && (
+                <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Import Summary:
+                  </Typography>
+                  <Typography variant="body2">
+                    • Files found: {gcsResults.files_found}
+                  </Typography>
+                  <Typography variant="body2">
+                    • Files imported: {gcsResults.files_imported}
+                  </Typography>
+                  <Typography variant="body2">
+                    • Files failed: {gcsResults.files_failed}
+                  </Typography>
+
+                  {gcsResults.imported_files && gcsResults.imported_files.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Imported Files:
+                      </Typography>
+                      <List dense>
+                        {gcsResults.imported_files.map((file, idx) => (
+                          <ListItem key={idx}>
+                            <ListItemText
+                              primary={file.filename}
+                              secondary={`${file.chunks_created} chunks created`}
+                            />
+                            <Chip label="Success" size="small" color="success" />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Box>
+                  )}
+
+                  {gcsResults.failed_files && gcsResults.failed_files.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="caption" color="error">
+                        Failed Files:
+                      </Typography>
+                      <List dense>
+                        {gcsResults.failed_files.map((file, idx) => (
+                          <ListItem key={idx}>
+                            <ListItemText
+                              primary={file.filename}
+                              secondary={file.error}
+                            />
+                            <Chip label="Failed" size="small" color="error" />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Example paths */}
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Examples:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1 }}>
+                  {[
+                    'gs://my-bucket/documents/',
+                    'gs://my-bucket/reports/2023/',
+                    'gs://my-bucket/file.pdf',
+                  ].map((example, idx) => (
+                    <Chip
+                      key={idx}
+                      label={example}
+                      size="small"
+                      onClick={() => setGcsPath(example)}
+                      sx={{ cursor: 'pointer', alignSelf: 'flex-start' }}
+                    />
+                  ))}
+                </Box>
+              </Box>
             </CardContent>
           </Card>
         </Grid>

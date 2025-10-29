@@ -1,29 +1,31 @@
 """
 Temporal Context RAG Agent using Google's Agent Development Kit (ADK)
 
-This agent manages RAG operations with temporal context awareness.
+This agent manages Vector Search operations with temporal context awareness.
 """
 
 from google.adk.agents import Agent
 from typing import List, Dict, Any, Optional
 import json
-import logging
 from datetime import datetime
 
-from vertex_rag_manager import VertexRAGManager
+from vector_search_manager import VectorSearchManager
 from temporal_embeddings import TemporalEmbeddingHandler
 from config import settings
+from logging_config import get_logger
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TemporalRAGAgent:
-    """Agent for managing temporal context RAG operations using Google's ADK."""
+    """Agent for managing temporal context Vector Search operations using Google's ADK."""
 
     def __init__(self):
         """Initialize the agent."""
-        logger.info(f"Initializing TemporalRAGAgent with embedding rate limit: {settings.embedding_requests_per_minute} requests/min")
+        logger.info(
+            "Initializing TemporalRAGAgent",
+            extra={'embedding_requests_per_minute': settings.embedding_requests_per_minute}
+        )
 
         # Store tool execution results for chat responses
         self.last_tool_results = []
@@ -34,10 +36,10 @@ class TemporalRAGAgent:
             model_name=settings.embedding_model_name,
             requests_per_minute=settings.embedding_requests_per_minute
         )
-        self.rag_manager = VertexRAGManager(
+        self.vector_search_manager = VectorSearchManager(
             project_id=settings.google_cloud_project,
             location=settings.google_cloud_location,
-            corpus_name=settings.vertex_ai_corpus_name,
+            index_name=settings.vertex_ai_corpus_name,
             embedding_handler=self.embedding_handler,
             gcs_bucket_name=settings.gcs_bucket_name,
             vector_search_index=settings.vector_search_index,
@@ -63,49 +65,47 @@ class TemporalRAGAgent:
         llm_model = Gemini(model="gemini-2.5-flash")
 
         self.agent = Agent(
-            name="temporal_rag_agent",
+            name="temporal_vector_search_agent",
             model=llm_model,
-            description="A helpful RAG assistant that searches document corpus for data/facts questions, and responds directly to greetings and capability inquiries",
-            instruction="""You are a RAG Corpus assistant that helps users query and manage documents.
+            description="A helpful Vector Search assistant that searches documents for data/facts questions, and responds directly to greetings and capability inquiries",
+            instruction="""You are a Vector Search assistant that helps users query and manage documents.
 
 ⚠️ TOOL USAGE RULES:
 
-When to call query_corpus (MANDATORY):
+When to call query_index (MANDATORY):
 - Any question asking for data, facts, numbers, or information (e.g., "What was revenue?", "Show me earnings")
 - Questions about specific topics, dates, people, or events
 - Questions with words like "what", "how much", "when", "show me", "find", "tell me about"
 - Comparison questions (e.g., "compare X and Y")
-→ For these questions, ALWAYS call query_corpus FIRST, then answer using the retrieved documents
+→ For these questions, ALWAYS call query_index FIRST, then answer using the retrieved documents
 
-When NOT to call query_corpus:
+When NOT to call query_index:
 - Greetings (e.g., "hello", "hi", "how are you")
 - Questions about YOUR capabilities (e.g., "what can you do?", "how do you work?")
 - Questions about the system itself (e.g., "what is this?", "how does this work?")
-→ For these, answer directly without calling query_corpus
+→ For these, answer directly without calling query_index
 
 Your capabilities:
-- Create and manage RAG corpora
-- Import documents with temporal metadata
+- Import documents with temporal metadata into Vector Search
 - Query documents with semantic search and temporal filtering
 - Extract temporal information from text
 
-The query_corpus tool automatically retrieves the optimal number of results and applies:
+The query_index tool automatically retrieves the optimal number of results and applies:
 - Vector similarity search to find relevant documents
 - Temporal filtering and sorting when dates are mentioned or "latest" is requested
 - You just need to provide the query text - the system handles the rest
 
 IMPORTANT Response Guidelines:
-- ALWAYS call query_corpus FIRST for every user question
+- ALWAYS call query_index FIRST for every user question
 - Provide detailed, verbose, and comprehensive answers based on the retrieved documents
 - Include relevant context, numbers, dates, and explanations from the retrieved documents
 - Break down complex information into clear, well-structured responses
 - Do NOT add source citations or document references (e.g., "Source: document.pdf") in your response text
 - The UI automatically displays sources in a separate section below your answer""",
             tools=[
-                self.create_rag_corpus,
                 self.import_documents,
-                self.query_corpus,
-                self.get_corpus_info,
+                self.query_index,
+                self.get_index_info,
                 self.extract_temporal_context
             ]
         )
@@ -119,30 +119,8 @@ IMPORTANT Response Guidelines:
 
     # Tool functions (ADK will automatically convert these to tool declarations)
 
-    async def create_rag_corpus(self, description: str, dimensions: int = 768) -> Dict[str, Any]:
-        """Creates a new RAG corpus in Vertex AI for storing and querying documents with temporal context.
-
-        This initializes a Vector Search index and endpoint.
-
-        Args:
-            description: Description of the corpus purpose
-            dimensions: Embedding dimensions (default: 768 for text-embedding-005)
-
-        Returns:
-            Corpus creation result
-        """
-        try:
-            result = await self.rag_manager.create_corpus(
-                description=description,
-                dimensions=dimensions
-            )
-            return {"success": True, "result": result}
-        except Exception as e:
-            logger.error(f"Error creating corpus: {str(e)}")
-            return {"success": False, "error": str(e)}
-
     async def import_documents(self, documents: List[Dict[str, Any]], bucket_name: Optional[str] = None) -> Dict[str, Any]:
-        """Imports documents into the RAG corpus with temporal context extraction.
+        """Imports documents into Vector Search with temporal context extraction.
 
         Documents are embedded with date awareness and stored in Vector Search.
 
@@ -154,7 +132,7 @@ IMPORTANT Response Guidelines:
             Import result
         """
         try:
-            result = await self.rag_manager.import_documents(
+            result = await self.vector_search_manager.import_documents(
                 documents=documents,
                 bucket_name=bucket_name
             )
@@ -163,11 +141,11 @@ IMPORTANT Response Guidelines:
             logger.error(f"Error importing documents: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def query_corpus(self, query: str, temporal_filter: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """MANDATORY: Search the document corpus - CALL THIS FOR EVERY USER QUESTION.
+    async def query_index(self, query: str, temporal_filter: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """MANDATORY: Search the Vector Search index - CALL THIS FOR EVERY USER QUESTION.
 
         CRITICAL: You MUST call this tool FIRST before answering ANY user question.
-        Do not try to answer from your own knowledge - always search the corpus first.
+        Do not try to answer from your own knowledge - always search the index first.
 
         This performs semantic search with temporal awareness to retrieve relevant documents.
         The system automatically handles result ranking, temporal filtering, and sorting.
@@ -182,8 +160,8 @@ IMPORTANT Response Guidelines:
         try:
             # Always use configured default top_k (LLM should not control this)
             top_k = settings.default_top_k
-            logger.info(f"Querying corpus: '{query}' (top_k={top_k})")
-            result = await self.rag_manager.query(
+            logger.info(f"Querying index: '{query}' (top_k={top_k})")
+            result = await self.vector_search_manager.query(
                 query_text=query,
                 top_k=top_k,
                 temporal_filter=temporal_filter
@@ -202,35 +180,35 @@ IMPORTANT Response Guidelines:
             # Store result for chat response
             tool_result = {"success": True, "result": result}
             self.last_tool_results.append({
-                "tool": "query_corpus",
+                "tool": "query_index",
                 "input": {"query": query, "temporal_filter": temporal_filter},
                 "result": tool_result
             })
 
             return tool_result
         except Exception as e:
-            logger.error(f"Error querying corpus: {str(e)}")
+            logger.error(f"Error querying index: {str(e)}")
             error_result = {"success": False, "error": str(e)}
             self.last_tool_results.append({
-                "tool": "query_corpus",
+                "tool": "query_index",
                 "input": {"query": query, "temporal_filter": temporal_filter},
                 "result": error_result
             })
             return error_result
 
-    async def get_corpus_info(self) -> Dict[str, Any]:
-        """Retrieves information about the current RAG corpus.
+    async def get_index_info(self) -> Dict[str, Any]:
+        """Retrieves information about the current Vector Search index.
 
-        Returns corpus details including index status, endpoint details, and document count.
+        Returns index details including status, endpoint details, and document count.
 
         Returns:
-            Corpus information
+            Index information
         """
         try:
-            result = await self.rag_manager.get_corpus_info()
+            result = await self.vector_search_manager.get_index_info()
             return {"success": True, "result": result}
         except Exception as e:
-            logger.error(f"Error getting corpus info: {str(e)}")
+            logger.error(f"Error getting index info: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def extract_temporal_context(self, text: str) -> Dict[str, Any]:
@@ -349,18 +327,6 @@ IMPORTANT Response Guidelines:
                 "timestamp": datetime.now().isoformat()
             }
 
-    async def create_corpus(self, description: str) -> Dict[str, Any]:
-        """Convenience method to create a corpus.
-
-        Args:
-            description: Corpus description
-
-        Returns:
-            Creation result
-        """
-        result = self.create_rag_corpus(description=description)
-        return result
-
     async def import_docs(self, documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Convenience method to import documents.
 
@@ -370,11 +336,11 @@ IMPORTANT Response Guidelines:
         Returns:
             Import result
         """
-        result = self.import_documents(documents=documents)
+        result = await self.import_documents(documents=documents)
         return result
 
     async def query(self, query_text: str, temporal_filter: Optional[Dict] = None) -> Dict[str, Any]:
-        """Convenience method to query the corpus.
+        """Convenience method to query the index.
 
         Args:
             query_text: Query text
@@ -383,7 +349,7 @@ IMPORTANT Response Guidelines:
         Returns:
             Query results
         """
-        result = self.query_corpus(
+        result = await self.query_index(
             query=query_text,
             temporal_filter=temporal_filter
         )

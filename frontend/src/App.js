@@ -12,11 +12,10 @@ import {
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
-import CorpusManager from './components/CorpusManager';
+import IndexManager from './components/IndexManager';
 import DocumentImporter from './components/DocumentImporter';
 import QueryInterface from './components/QueryInterface';
 import ChatInterface from './components/ChatInterface';
-import DiagnosticsPanel from './components/DiagnosticsPanel';
 
 const theme = createTheme({
   palette: {
@@ -210,10 +209,9 @@ function App() {
               }}
             >
               <Tab label="💬 Chat" />
-              <Tab label="🗄️ Corpus" />
+              <Tab label="🗄️ Index" />
               <Tab label="📄 Import" />
               <Tab label="🔍 Query" />
-              <Tab label="🔧 Diagnostics" />
             </Tabs>
 
             <TabPanel value={tabValue} index={0}>
@@ -221,7 +219,7 @@ function App() {
             </TabPanel>
 
             <TabPanel value={tabValue} index={1}>
-              <CorpusManager />
+              <IndexManager />
             </TabPanel>
 
             <TabPanel value={tabValue} index={2}>
@@ -230,10 +228,6 @@ function App() {
 
             <TabPanel value={tabValue} index={3}>
               <QueryInterface />
-            </TabPanel>
-
-            <TabPanel value={tabValue} index={4}>
-              <DiagnosticsPanel />
             </TabPanel>
           </Paper>
         </Container>

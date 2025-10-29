@@ -250,7 +250,7 @@ function ChatInterface() {
 
                 {/* Sources Section - Show documents with rerank scores */}
                 {message.toolResults && message.toolResults.some(tool =>
-                  tool.tool === 'query_corpus' && tool.result.success && tool.result.result?.results
+                  tool.tool === 'query_index' && tool.result.success && tool.result.result?.results
                 ) && (
                   <Box sx={{ mt: 2, p: 2, backgroundColor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, gap: 1 }}>
@@ -260,7 +260,7 @@ function ChatInterface() {
                       </Typography>
                     </Box>
                     {message.toolResults
-                      .filter(tool => tool.tool === 'query_corpus' && tool.result.success && tool.result.result?.results)
+                      .filter(tool => tool.tool === 'query_index' && tool.result.success && tool.result.result?.results)
                       .map((tool, toolIdx) => (
                         <Box key={toolIdx}>
                           {/* Only show the first (most relevant) result */}
@@ -288,14 +288,47 @@ function ChatInterface() {
                                 />
                               </Box>
 
-                              {/* Similarity Score */}
+                              {/* Metadata Badges */}
                               <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-                                {result.score !== undefined && (
+                                {(result.citation?.score !== undefined || result.score !== undefined) && (
                                   <Chip
-                                    label={`Similarity: ${(result.score * 100).toFixed(1)}%`}
+                                    label={`Relevance: ${((result.citation?.score ?? result.score) * 100).toFixed(2)}%`}
                                     size="small"
                                     color="primary"
                                     sx={{ fontWeight: 'bold' }}
+                                  />
+                                )}
+                                {result.citation?.page_number !== undefined && (
+                                  <Chip
+                                    icon={<DescriptionIcon />}
+                                    label={`Page ${result.citation.page_number}`}
+                                    size="small"
+                                    variant="outlined"
+                                    color="primary"
+                                  />
+                                )}
+                                {result.citation?.page_chunk_index !== undefined && (
+                                  <Chip
+                                    label={`Chunk ${result.citation.page_chunk_index}`}
+                                    size="small"
+                                    variant="outlined"
+                                    color="primary"
+                                  />
+                                )}
+                                {result.citation?.quality_score !== undefined && (
+                                  <Chip
+                                    label={`Quality: ${(result.citation.quality_score * 100).toFixed(0)}%`}
+                                    size="small"
+                                    variant="outlined"
+                                    color={result.citation.quality_score > 0.7 ? 'success' : 'default'}
+                                  />
+                                )}
+                                {result.citation?.date && (
+                                  <Chip
+                                    icon={<AccessTimeIcon />}
+                                    label={result.citation.date}
+                                    size="small"
+                                    variant="outlined"
                                   />
                                 )}
                               </Box>
@@ -356,7 +389,7 @@ function ChatInterface() {
                         </AccordionSummary>
                         <AccordionDetails>
                           {/* Display query results with citations */}
-                          {tool.tool === 'query_corpus' && tool.result.success && tool.result.result?.results ? (
+                          {tool.tool === 'query_index' && tool.result.success && tool.result.result?.results ? (
                             <Box>
                               <Typography variant="caption" color="text.secondary" gutterBottom>
                                 Found {tool.result.result.results.length} result(s)
@@ -370,7 +403,7 @@ function ChatInterface() {
                                       {result.title || `Document ${ridx + 1}`}
                                     </Typography>
                                     <Chip
-                                      label={`${(result.score * 100).toFixed(1)}%`}
+                                      label={`Relevance: ${((result.citation?.score ?? result.score) * 100).toFixed(2)}%`}
                                       size="small"
                                       color="primary"
                                     />
@@ -457,6 +490,31 @@ function ChatInterface() {
                                   {/* Metadata */}
                                   {result.citation && (
                                     <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+                                      {result.citation.page_number !== undefined && (
+                                        <Chip
+                                          icon={<DescriptionIcon />}
+                                          label={`Page ${result.citation.page_number}`}
+                                          size="small"
+                                          variant="outlined"
+                                          color="primary"
+                                        />
+                                      )}
+                                      {result.citation.page_chunk_index !== undefined && (
+                                        <Chip
+                                          label={`Chunk ${result.citation.page_chunk_index}`}
+                                          size="small"
+                                          variant="outlined"
+                                          color="primary"
+                                        />
+                                      )}
+                                      {result.citation.quality_score !== undefined && (
+                                        <Chip
+                                          label={`Quality: ${(result.citation.quality_score * 100).toFixed(0)}%`}
+                                          size="small"
+                                          variant="outlined"
+                                          color={result.citation.quality_score > 0.7 ? 'success' : 'default'}
+                                        />
+                                      )}
                                       {result.citation.date && (
                                         <Chip icon={<AccessTimeIcon />} label={result.citation.date} size="small" variant="outlined" />
                                       )}

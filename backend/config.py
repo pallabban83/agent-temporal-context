@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     api_title: str = "Temporal Context RAG Agent"
     api_version: str = "1.0.0"
 
+    # Logging settings
+    log_format: str = "logfmt"  # Options: "json" or "logfmt"
+    log_level: str = "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    log_colors: bool = True  # Enable colored output for logfmt format
+
     class Config:
         env_file = ".env"
         case_sensitive = False

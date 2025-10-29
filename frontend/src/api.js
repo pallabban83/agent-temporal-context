@@ -9,9 +9,9 @@ const api = axios.create({
   },
 });
 
-// Vector Search Infrastructure Management
-export const createVectorSearchInfrastructure = async (description, dimensions = 768, indexAlgorithm = 'brute_force') => {
-  const response = await api.post('/vector-search/create', {
+// Vector Search Index Management
+export const createIndex = async (description, dimensions = 768, indexAlgorithm = 'brute_force') => {
+  const response = await api.post('/index/create', {
     description,
     dimensions,
     index_algorithm: indexAlgorithm,
@@ -19,50 +19,18 @@ export const createVectorSearchInfrastructure = async (description, dimensions =
   return response.data;
 };
 
-// Corpus Management
-export const createCorpus = async (description, dimensions = 768) => {
-  const response = await api.post('/corpus/create', { description, dimensions });
+export const getIndexInfo = async () => {
+  const response = await api.get('/index/info');
   return response.data;
 };
 
-export const getCorpusInfo = async () => {
-  const response = await api.get('/corpus/info');
+export const clearIndexDatapoints = async () => {
+  const response = await api.post('/index/clear');
   return response.data;
 };
 
-export const clearDatapoints = async () => {
-  const response = await api.post('/corpus/clear-datapoints');
-  return response.data;
-};
-
-export const registerExistingDocuments = async () => {
-  const response = await api.post('/corpus/register-existing-documents');
-  return response.data;
-};
-
-// Diagnostics and Repair
-export const runDiagnostics = async () => {
-  const response = await api.get('/corpus/diagnostics');
-  return response.data;
-};
-
-export const rebuildMetadata = async () => {
-  const response = await api.post('/corpus/rebuild-metadata');
-  return response.data;
-};
-
-export const fullRepair = async () => {
-  const response = await api.post('/corpus/full-repair');
-  return response.data;
-};
-
-export const deleteVectorSearchInfrastructure = async () => {
-  const response = await api.delete('/vector-search/delete');
-  return response.data;
-};
-
-export const deleteCorpus = async () => {
-  const response = await api.delete('/corpus/delete');
+export const deleteIndex = async () => {
+  const response = await api.delete('/index/delete');
   return response.data;
 };
 
@@ -92,8 +60,26 @@ export const uploadDocument = async (file, documentDate = null, chunkSize = 1000
   return response.data;
 };
 
+export const importFromGCS = async (gcsPath, documentDate = null, recursive = true, chunkSize = 1000, chunkOverlap = 200) => {
+  const formData = new FormData();
+  formData.append('gcs_path', gcsPath);
+  if (documentDate) {
+    formData.append('document_date', documentDate);
+  }
+  formData.append('recursive', recursive.toString());
+  formData.append('chunk_size', chunkSize.toString());
+  formData.append('chunk_overlap', chunkOverlap.toString());
+
+  const response = await api.post('/documents/import_from_gcs', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
 // Query
-export const queryCorpus = async (query, topK = 5, temporalFilter = null) => {
+export const queryIndex = async (query, topK = 5, temporalFilter = null) => {
   const response = await api.post('/query', {
     query,
     top_k: topK,

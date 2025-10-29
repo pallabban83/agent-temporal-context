@@ -2,24 +2,30 @@
 FastAPI Web Service for Temporal Context RAG Agent
 """
 
+# Initialize logging FIRST before any other imports
+from config import settings
+from logging_config import setup_logging, get_logger
+
+# Setup centralized logging
+setup_logging(
+    log_format=settings.log_format,
+    log_level=settings.log_level,
+    enable_colors=settings.log_colors
+)
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
-import logging
 import json
 from datetime import datetime
 
 from agent import TemporalRAGAgent
-from config import settings
 from document_parser import DocumentParser
 from text_chunker import TextChunker
-from multimodal_parser import MultimodalDocumentParser
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -40,12 +46,6 @@ app.add_middleware(
 # Initialize agent
 agent = TemporalRAGAgent()
 
-# Initialize multimodal parser
-multimodal_parser = MultimodalDocumentParser(
-    project_id=settings.google_cloud_project,
-    gcs_bucket=settings.gcs_bucket_name
-)
-
 
 # Pydantic models for request/response
 class CreateVectorSearchRequest(BaseModel):
@@ -54,9 +54,6 @@ class CreateVectorSearchRequest(BaseModel):
     index_algorithm: str = Field("brute_force", description="Index algorithm: brute_force or tree_ah")
 
 
-class CreateCorpusRequest(BaseModel):
-    description: str = Field(..., description="Description of the corpus")
-    dimensions: int = Field(768, description="Embedding dimensions")
 
 
 class Document(BaseModel):
@@ -100,13 +97,12 @@ async def root():
     }
 
 
-@app.post("/vector-search/create")
-async def create_vector_search_infrastructure(request: CreateVectorSearchRequest):
+@app.post("/index/create")
+async def create_index(request: CreateVectorSearchRequest):
     """Create Vector Search index and endpoint from scratch.
 
-    This is STEP 1: Creates the underlying infrastructure.
+    This creates the Vector Search infrastructure for storing and querying documents.
     After creation, the resource names are automatically saved to .env file.
-    You can then use STEP 2 to create a RAG corpus on top of this infrastructure.
 
     Args:
         request: Vector Search creation parameters
@@ -116,7 +112,7 @@ async def create_vector_search_infrastructure(request: CreateVectorSearchRequest
     """
     try:
         logger.info(f"Creating Vector Search infrastructure: {request.description}")
-        result = await agent.rag_manager.create_vector_search_infrastructure(
+        result = await agent.vector_search_manager.create_vector_search_infrastructure(
             description=request.description,
             dimensions=request.dimensions,
             index_algorithm=request.index_algorithm
@@ -128,60 +124,34 @@ async def create_vector_search_infrastructure(request: CreateVectorSearchRequest
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/corpus/create")
-async def create_corpus(request: CreateCorpusRequest):
-    """Create a new RAG corpus using existing Vector Search infrastructure.
-
-    This is STEP 2: Creates a RAG corpus that wraps the Vector Search index/endpoint.
-    Requires Vector Search infrastructure to be created first (STEP 1) or configured in .env.
-
-    Args:
-        request: Corpus creation parameters
+@app.get("/index/info")
+async def get_index_info():
+    """Get information about the current Vector Search index.
 
     Returns:
-        Corpus creation result
+        Index information
     """
     try:
-        logger.info(f"Creating corpus: {request.description}")
-        result = await agent.rag_manager.create_corpus(
-            description=request.description,
-            dimensions=request.dimensions
-        )
-        return {"success": True, "data": result}
-
-    except Exception as e:
-        logger.error(f"Error creating corpus: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/corpus/info")
-async def get_corpus_info():
-    """Get information about the current RAG corpus.
-
-    Returns:
-        Corpus information
-    """
-    try:
-        info = await agent.rag_manager.get_corpus_info()
+        info = await agent.vector_search_manager.get_index_info()
         return {"success": True, "data": info}
 
     except Exception as e:
-        logger.error(f"Error getting corpus info: {str(e)}")
+        logger.error(f"Error getting index info: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/corpus/clear-datapoints")
-async def clear_datapoints():
+@app.post("/index/clear")
+async def clear_index_datapoints():
     """Clear all datapoints from the index without deleting the index/endpoint.
 
-    This is much faster than recreating the entire corpus.
+    This is much faster than recreating the entire index infrastructure.
 
     Returns:
         Clear operation status
     """
     try:
         logger.info("Clearing all datapoints via API")
-        result = await agent.rag_manager.clear_all_datapoints()
+        result = await agent.vector_search_manager.clear_all_datapoints()
         return {"success": True, "data": result}
 
     except Exception as e:
@@ -189,204 +159,18 @@ async def clear_datapoints():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/corpus/register-existing-documents")
-async def register_existing_documents():
-    """Register existing GCS documents with RAG Engine.
-
-    This is useful when documents were already upserted to Vector Search
-    but need to be registered with RAG Engine for text retrieval.
-
-    Returns:
-        Registration status and document count
-    """
-    try:
-        logger.info("Registering existing GCS documents with RAG Engine")
-        result = await agent.rag_manager.register_existing_documents_with_rag()
-        return {"success": True, "data": result}
-
-    except Exception as e:
-        logger.error(f"Error registering documents: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/corpus/diagnostics")
-async def run_sync_diagnostics():
-    """Run sync diagnostics to check for inconsistencies.
-
-    Checks:
-    - Metadata cache completeness
-    - GCS document sync status
-    - RAG Engine registration status
-    - Citation metadata completeness
-
-    Returns:
-        Diagnostic report with sync status and recommendations
-    """
-    try:
-        logger.info("Running sync diagnostics")
-
-        from diagnose_sync import SyncDiagnostics
-
-        diagnostics = SyncDiagnostics()
-        report = diagnostics.analyze_sync_status()
-
-        return {
-            "success": True,
-            "data": report,
-            "recommendations": _get_recommendations(report)
-        }
-
-    except Exception as e:
-        logger.error(f"Error running diagnostics: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/corpus/rebuild-metadata")
-async def rebuild_metadata_cache():
-    """Rebuild metadata cache from GCS documents.
-
-    This is useful when:
-    - Metadata cache is out of sync
-    - Citations are not working properly
-    - After manual GCS operations
-
-    Returns:
-        Rebuild status and metadata count
-    """
-    try:
-        logger.info("Rebuilding metadata cache from GCS")
-
-        from repair_sync import SyncRepairer
-
-        repairer = SyncRepairer(dry_run=False)
-        metadata = repairer.rebuild_metadata_from_gcs()
-
-        if not metadata:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to rebuild metadata - no documents found"
-            )
-
-        # Validate citations
-        validation_report = repairer.validate_citations(metadata)
-
-        # Save metadata
-        if not repairer.save_metadata_to_gcs(metadata):
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to save rebuilt metadata"
-            )
-
-        # Reload metadata in the running instance
-        agent.rag_manager.document_metadata = metadata
-
-        return {
-            "success": True,
-            "data": {
-                "metadata_count": len(metadata),
-                "validation": validation_report,
-                "message": "Metadata cache successfully rebuilt and reloaded"
-            }
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error rebuilding metadata: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/corpus/full-repair")
-async def full_sync_repair():
-    """Perform full sync repair.
-
-    This operation will:
-    1. Rebuild metadata cache from GCS documents
-    2. Re-register all documents with RAG Engine
-    3. Validate citation completeness
-
-    Returns:
-        Repair status and summary
-    """
-    try:
-        logger.info("Performing full sync repair")
-
-        from repair_sync import SyncRepairer
-
-        repairer = SyncRepairer(dry_run=False)
-        success = repairer.full_repair()
-
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Full repair completed with errors - check logs"
-            )
-
-        # Reload metadata in the running instance
-        metadata_path = f"rag_corpus/{agent.rag_manager.corpus_name}/metadata/document_metadata.json"
-        from google.cloud import storage
-        storage_client = storage.Client(project=agent.rag_manager.project_id)
-        bucket = storage_client.bucket(agent.rag_manager.gcs_bucket_name)
-        blob = bucket.blob(metadata_path)
-
-        if blob.exists():
-            metadata_json = blob.download_as_text()
-            agent.rag_manager.document_metadata = json.loads(metadata_json)
-            logger.info(f"Reloaded metadata for {len(agent.rag_manager.document_metadata)} documents")
-
-        return {
-            "success": True,
-            "data": {
-                "message": "Full repair completed successfully",
-                "metadata_count": len(agent.rag_manager.document_metadata),
-                "recommendation": "Run GET /corpus/diagnostics to verify sync status"
-            }
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error during full repair: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-def _get_recommendations(report: Dict[str, Any]) -> List[str]:
-    """Get recommendations based on diagnostic report."""
-    recommendations = []
-
-    if report.get('needs_rag_sync'):
-        recommendations.append(
-            "Run POST /corpus/register-existing-documents to sync documents with RAG Engine"
-        )
-
-    if report.get('missing_metadata'):
-        recommendations.append(
-            "Run POST /corpus/rebuild-metadata to rebuild metadata cache from GCS"
-        )
-
-    if report.get('citation_issues_count', 0) > 0:
-        recommendations.append(
-            "Some documents have incomplete citation metadata - consider re-importing with complete metadata"
-        )
-
-    if not recommendations:
-        recommendations.append("System is healthy - no action needed")
-
-    return recommendations
-
-
-@app.delete("/vector-search/delete")
-async def delete_vector_search_infrastructure():
+@app.delete("/index/delete")
+async def delete_index():
     """Delete Vector Search index and endpoint infrastructure.
 
-    Use this to clean up old infrastructure before creating new.
+    Use this to clean up infrastructure before creating new.
 
     Returns:
         Deletion status
     """
     try:
         logger.info("Deleting Vector Search infrastructure via API")
-        result = await agent.rag_manager.delete_vector_search_infrastructure()
+        result = await agent.vector_search_manager.delete_index_infrastructure()
         return {"success": True, "data": result}
 
     except Exception as e:
@@ -394,26 +178,9 @@ async def delete_vector_search_infrastructure():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/corpus/delete")
-async def delete_corpus():
-    """Delete the RAG corpus and all associated resources.
-
-    Returns:
-        Deletion status
-    """
-    try:
-        logger.info("Deleting corpus via API")
-        result = await agent.rag_manager.delete_corpus()
-        return {"success": True, "data": result}
-
-    except Exception as e:
-        logger.error(f"Error deleting corpus: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/documents/import")
 async def import_documents(request: ImportDocumentsRequest):
-    """Import documents into the RAG corpus.
+    """Import documents into Vector Search.
 
     Args:
         request: Document import parameters
@@ -427,7 +194,7 @@ async def import_documents(request: ImportDocumentsRequest):
         # Convert Pydantic models to dicts
         documents = [doc.model_dump() for doc in request.documents]
 
-        result = await agent.rag_manager.import_documents(
+        result = await agent.vector_search_manager.import_documents(
             documents=documents,
             bucket_name=request.bucket_name
         )
@@ -466,7 +233,7 @@ async def upload_document(
         content = await file.read()
 
         # Store original file in GCS and get authenticated URL
-        original_file_url = agent.rag_manager.store_original_file(
+        original_file_url = agent.vector_search_manager.store_original_file(
             file_content=content,
             filename=file.filename,
             content_type=file.content_type or 'application/octet-stream'
@@ -481,8 +248,25 @@ async def upload_document(
             "original_file_url": original_file_url  # Add authenticated URL for viewing
         }
 
-        if document_date:
-            base_metadata["document_date"] = document_date
+        # Determine document date (user-provided takes priority)
+        final_document_date = document_date
+
+        # If not provided, extract from filename
+        if not final_document_date:
+            extracted_date = agent.embedding_handler.extract_date_from_filename(file.filename)
+            if extracted_date:
+                final_document_date = extracted_date
+                logger.info(
+                    "Extracted date from filename",
+                    extra={
+                        'document_filename': file.filename,
+                        'extracted_date': extracted_date
+                    }
+                )
+
+        # Add to metadata if we have a date (user-provided or extracted)
+        if final_document_date:
+            base_metadata["document_date"] = final_document_date
 
         # Validate chunk parameters
         if chunk_overlap >= chunk_size:
@@ -497,89 +281,39 @@ async def upload_document(
 
         document_id = f"{file.filename.replace('.', '_').replace(' ', '_')}_{int(datetime.now().timestamp())}"
 
-        # Handle PDF files with page-aware chunking (with or without images)
+        # Handle PDF files with page-aware chunking
         if file.filename.lower().endswith('.pdf') or file.content_type == 'application/pdf':
-            logger.info("Processing PDF...")
+            logger.info("Processing PDF (text-only)...")
 
-            # Try multimodal parsing to check for images
-            try:
-                multimodal_data = multimodal_parser.parse_multimodal_pdf(content, document_id)
+            # Parse PDF text by pages
+            pdf_data = DocumentParser.parse_pdf_by_pages(content)
 
-                if multimodal_data['has_images']:
-                    logger.info(f"PDF has {multimodal_data['total_images']} images - using multimodal chunking")
+            base_metadata.update({
+                "document_type": "pdf",
+                "total_pages": pdf_data['total_pages'],
+                "non_empty_pages": pdf_data.get('non_empty_pages', pdf_data['total_pages']),
+                "char_count": pdf_data['total_chars'],
+                "has_tables": pdf_data.get('has_tables', False),
+                "total_tables": pdf_data.get('total_tables', 0),
+            })
 
-                    base_metadata.update({
-                        "document_type": "pdf",
-                        "total_pages": multimodal_data['total_pages'],
-                        "total_images": multimodal_data['total_images'],
-                        "has_images": True
-                    })
+            # Chunk by pages (text + tables)
+            chunks = chunker.chunk_pdf_by_pages(
+                page_texts=pdf_data['page_texts'],
+                metadata=base_metadata,
+                document_id=document_id
+            )
 
-                    # Chunk with image context
-                    chunks = chunker.chunk_multimodal_pdf(
-                        pages_data=multimodal_data['pages'],
-                        metadata=base_metadata,
-                        document_id=document_id
-                    )
-
-                    parsing_info = {
-                        'type': 'pdf',
-                        'total_pages': multimodal_data['total_pages'],
-                        'total_images': multimodal_data['total_images'],
-                        'chunks_created': len(chunks),
-                        'multimodal': True
-                    }
-                else:
-                    logger.info("PDF has no images - using text-only chunking")
-
-                    # Extract page texts for regular chunking
-                    page_texts = [page['text'] for page in multimodal_data['pages']]
-
-                    base_metadata.update({
-                        "document_type": "pdf",
-                        "total_pages": multimodal_data['total_pages'],
-                        "has_images": False
-                    })
-
-                    # Chunk by pages (text only)
-                    chunks = chunker.chunk_pdf_by_pages(
-                        page_texts=page_texts,
-                        metadata=base_metadata,
-                        document_id=document_id
-                    )
-
-                    parsing_info = {
-                        'type': 'pdf',
-                        'total_pages': multimodal_data['total_pages'],
-                        'chunks_created': len(chunks),
-                        'multimodal': False
-                    }
-
-            except Exception as e:
-                logger.warning(f"Multimodal parsing failed, falling back to text-only: {e}")
-
-                # Fall back to text-only parsing
-                pdf_data = DocumentParser.parse_pdf_by_pages(content)
-
-                base_metadata.update({
-                    "document_type": "pdf",
-                    "total_pages": pdf_data['total_pages'],
-                    "char_count": pdf_data['total_chars'],
-                })
-
-                chunks = chunker.chunk_pdf_by_pages(
-                    page_texts=pdf_data['page_texts'],
-                    metadata=base_metadata,
-                    document_id=document_id
-                )
-
-                parsing_info = {
-                    'type': 'pdf',
-                    'total_pages': pdf_data['total_pages'],
-                    'char_count': pdf_data['total_chars'],
-                    'chunks_created': len(chunks),
-                    'multimodal': False
-                }
+            parsing_info = {
+                'type': 'pdf',
+                'total_pages': pdf_data['total_pages'],
+                'non_empty_pages': pdf_data.get('non_empty_pages', pdf_data['total_pages']),
+                'char_count': pdf_data['total_chars'],
+                'total_tables': pdf_data.get('total_tables', 0),
+                'has_tables': pdf_data.get('has_tables', False),
+                'pages_with_tables': pdf_data.get('pages_with_tables', []),
+                'chunks_created': len(chunks)
+            }
         else:
             # Parse other document types
             parsed_doc = DocumentParser.parse_document(
@@ -611,7 +345,7 @@ async def upload_document(
         logger.info(f"Created {len(chunks)} chunks from document")
 
         # Import chunks as separate documents
-        result = await agent.rag_manager.import_documents(documents=chunks)
+        result = await agent.vector_search_manager.import_documents(documents=chunks)
 
         # Add parsing info to result
         result['parsing_info'] = parsing_info
@@ -623,9 +357,86 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/documents/import_from_gcs")
+async def import_from_gcs(
+    gcs_path: str = Form(...),
+    document_date: Optional[str] = Form(None),
+    recursive: bool = Form(True),
+    chunk_size: int = Form(1000),
+    chunk_overlap: int = Form(200)
+):
+    """Import documents from GCS path (file or folder).
+
+    Args:
+        gcs_path: GCS path (gs://bucket/path/to/folder/ or gs://bucket/file.pdf)
+        document_date: Optional date associated with all documents
+        recursive: If True and path is folder, import all files recursively (default: True)
+        chunk_size: Size of each text chunk in characters (default: 1000)
+        chunk_overlap: Overlap between consecutive chunks in characters (default: 200)
+
+    Returns:
+        Import result with file counts and status
+
+    Example paths:
+        - Single file: gs://my-bucket/documents/report.pdf
+        - Folder: gs://my-bucket/documents/
+        - Subfolder: gs://my-bucket/documents/financial/2023/
+    """
+    try:
+        logger.info(
+            "GCS import requested",
+            extra={
+                'gcs_path': gcs_path,
+                'document_date': document_date,
+                'recursive': recursive,
+                'chunk_size': chunk_size,
+                'chunk_overlap': chunk_overlap
+            }
+        )
+
+        # Validate GCS path format
+        if not gcs_path.startswith('gs://'):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GCS path. Must start with 'gs://'"
+            )
+
+        # Validate chunk parameters
+        if chunk_overlap >= chunk_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"chunk_overlap ({chunk_overlap}) must be less than chunk_size ({chunk_size})"
+            )
+
+        # Import from GCS
+        result = await agent.vector_search_manager.import_from_gcs(
+            gcs_path=gcs_path,
+            document_date=document_date,
+            recursive=recursive,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
+
+        return {"success": True, "data": result}
+
+    except ValueError as e:
+        logger.error(
+            "GCS import validation error",
+            extra={'gcs_path': gcs_path, 'error': str(e)}
+        )
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(
+            "Error importing from GCS",
+            exc_info=True,
+            extra={'gcs_path': gcs_path}
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/query")
-async def query_corpus(request: QueryRequest):
-    """Query the RAG corpus with citations.
+async def query_index(request: QueryRequest):
+    """Query Vector Search index with citations.
 
     Args:
         request: Query parameters
@@ -636,7 +447,7 @@ async def query_corpus(request: QueryRequest):
     try:
         logger.info(f"Querying: {request.query}")
 
-        result = await agent.rag_manager.query(
+        result = await agent.vector_search_manager.query(
             query_text=request.query,
             top_k=request.top_k,
             temporal_filter=request.temporal_filter
@@ -645,7 +456,7 @@ async def query_corpus(request: QueryRequest):
         return {"success": True, "data": result}
 
     except Exception as e:
-        logger.error(f"Error querying corpus: {str(e)}")
+        logger.error(f"Error querying index: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -660,7 +471,7 @@ async def get_document(document_id: str):
         Document with citation information
     """
     try:
-        document = agent.rag_manager.get_document(document_id)
+        document = agent.vector_search_manager.get_document(document_id)
 
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
