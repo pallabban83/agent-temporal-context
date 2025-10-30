@@ -1,6 +1,6 @@
 # Temporal Context RAG Agent
 
-A production-ready Retrieval-Augmented Generation (RAG) system with temporal context awareness, table-aware chunking, and comprehensive citation tracking. Built with Anthropic's Claude, Google Cloud Vertex AI, and FastAPI.
+A production-ready Retrieval-Augmented Generation (RAG) system with temporal context awareness, table-aware chunking, and comprehensive citation tracking. Built with Google Cloud Vertex AI and FastAPI.
 
 ## Overview
 
@@ -9,7 +9,6 @@ This system provides advanced document processing and semantic search with:
 - **Table-Aware Chunking**: Intelligent text chunking that preserves table integrity
 - **GCS Import**: Directly import documents from Google Cloud Storage without re-uploading
 - **Citation Tracking**: Comprehensive citations with clickable links and metadata
-- **Conversational Interface**: Natural language interaction via Claude 3.5 Sonnet
 - **Production-Ready**: Vector Search with configurable algorithms (BruteForce/TreeAH)
 
 ---
@@ -19,7 +18,6 @@ This system provides advanced document processing and semantic search with:
 ### Prerequisites
 - Python 3.9+, Node.js 16+
 - Google Cloud Project with enabled APIs: Vertex AI, Vector Search, Cloud Storage
-- Anthropic API key
 
 ### 1. Backend Setup
 
@@ -40,7 +38,6 @@ cp .env.example .env
 ```env
 GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
-ANTHROPIC_API_KEY=sk-ant-xxxxx
 VERTEX_AI_CORPUS_NAME=temporal-rag-corpus
 GCS_BUCKET_NAME=your-bucket-name
 EMBEDDING_MODEL_NAME=text-embedding-005
@@ -117,7 +114,6 @@ curl -X POST http://localhost:8000/query \
 
 **Backend Components:**
 - `main.py`: FastAPI REST API with CORS
-- `agent.py`: Claude 3.5 Sonnet agent with tool execution
 - `vector_search_manager.py`: Vector Search operations, GCS import, citation generation
 - `temporal_embeddings.py`: Date extraction, temporal context enhancement
 - `text_chunker.py`: Table-aware chunking with quality scoring
@@ -128,6 +124,264 @@ curl -X POST http://localhost:8000/query \
 - `QueryInterface.js`: Search UI with rich result cards
 - `DocumentImporter.js`: File upload and GCS import UI
 - `CorpusManager.js`: Index/endpoint management
+
+---
+
+## Pipeline Flow Diagrams
+
+### Complete Document Processing Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          DOCUMENT INGESTION                              │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+         ┌──────────▼──────────┐       ┌───────────▼──────────┐
+         │   File Upload       │       │   GCS Import         │
+         │   (Frontend)        │       │   (gs://bucket/...)  │
+         └──────────┬──────────┘       └───────────┬──────────┘
+                    │                               │
+                    └───────────────┬───────────────┘
+                                    │
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         DOCUMENT PARSING                                 │
+│  ┌─────────────┬─────────────┬─────────────┬─────────────┐             │
+│  │    PDF      │    DOCX     │    TXT      │     MD      │             │
+│  │ pdfplumber  │  python-    │   UTF-8     │  Markdown   │             │
+│  │ + pypdf     │   docx      │  Decode     │  Preserved  │             │
+│  └─────┬───────┴─────┬───────┴─────┬───────┴─────┬───────┘             │
+│        │             │             │             │                       │
+│   ┌────▼─────────────▼─────────────▼─────────────▼────┐                │
+│   │   TABLE DETECTION & EXTRACTION (PDF Only)          │                │
+│   │   • Find tables using pdfplumber.find_tables()     │                │
+│   │   • Validate: ≥2 rows, ≥2 columns, valid bbox     │                │
+│   │   • Convert to markdown: [TABLE N]...[END TABLE]   │                │
+│   │   • Extract text OUTSIDE table regions (anti-dup)  │                │
+│   │   • Maintain document order by y-position          │                │
+│   └─────────────────────┬──────────────────────────────┘                │
+└─────────────────────────┼────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    TEMPORAL CONTEXT EXTRACTION                           │
+│  • Extract dates: YYYY-MM-DD, MM/DD/YYYY, Month Day Year               │
+│  • Extract fiscal periods: Q1 2023, FY2023, H1 2024                    │
+│  • Extract from filenames: "July 1st. 2025.PDF" → 2025-07-01          │
+│  • Table-aware: Detect temporal data in tables (with column context)   │
+│  • Deduplicate: Remove overlapping temporal references                 │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      TABLE-AWARE CHUNKING                                │
+│  1. Extract table positions: [TABLE N] markers                         │
+│  2. Segment text: [text] [table] [text] [table] ...                    │
+│  3. Chunk text segments: Hierarchical (headers → paragraphs → sentences)│
+│  4. Keep tables ATOMIC: Never split mid-table                          │
+│  5. Table-aware overlap: No overlap across table boundaries            │
+│  6. Quality scoring: Different criteria for text vs table chunks       │
+│                                                                          │
+│  Output: List of chunks with metadata                                   │
+│    • content, page_number, chunk_index, page_chunk_index               │
+│    • has_table, table_count, has_complete_table                        │
+│    • quality_score (0-1), sentence_count, word_count                   │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   TEMPORAL EMBEDDING ENHANCEMENT                         │
+│  For each chunk:                                                        │
+│    1. Extract temporal entities from chunk text                        │
+│    2. Build temporal context prefix (max 200 chars):                   │
+│       "[TEMPORAL_CONTEXT: Document Date: 2023-12-31 |                  │
+│        Contains Table Data | Fiscal Quarters (Tabular): Q1 2023 |      │
+│        Dates: 2023-01-15 | Years: 2023]"                               │
+│    3. Prepend to chunk text                                            │
+│    4. Generate embedding using Vertex AI (text-embedding-005)          │
+│    5. Rate limit: 60 req/min, retry with exponential backoff           │
+│                                                                          │
+│  Output: 768-dimensional vectors with temporal awareness               │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   STORAGE & INDEXING                                     │
+│  ┌──────────────────────────┐      ┌─────────────────────────────────┐ │
+│  │  Google Cloud Storage    │      │  Vertex AI Vector Search        │ │
+│  │  ──────────────────────  │      │  ─────────────────────────────  │ │
+│  │  Original File (optional)│      │  • Upsert embeddings + metadata │ │
+│  │  Chunk JSON (required)   │      │  • DOT_PRODUCT_DISTANCE         │ │
+│  │  └─ Enhanced chunks      │      │  • BruteForce or TreeAH index   │ │
+│  │  └─ Metadata             │      │  • Deployed on e2-standard-2    │ │
+│  │  └─ Quality scores       │      │  • find_neighbors API           │ │
+│  └──────────────────────────┘      └─────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+                             QUERY PIPELINE
+                                   │
+┌──────────────────────────────────▼──────────────────────────────────────┐
+│                         USER QUERY                                       │
+│  "What was the Q4 2023 revenue?" + optional temporal filters            │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                  QUERY TEMPORAL ENHANCEMENT                              │
+│  1. Extract temporal entities from query                                │
+│  2. Build temporal context (same as document processing)                │
+│  3. Generate query embedding (768-dim)                                  │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   VECTOR SIMILARITY SEARCH                               │
+│  1. Call index_endpoint.find_neighbors(query_embedding)                │
+│  2. Apply temporal filters (post-retrieval) if specified               │
+│  3. Sort by DOT_PRODUCT score (higher = more similar)                  │
+│  4. Return top_k results (default: 10)                                 │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      CITATION GENERATION                                 │
+│  For each result:                                                       │
+│    • document_id, title, source (filename)                             │
+│    • score, relevance (0.0-1.0+)                                       │
+│    • page_number, chunk_index, page_chunk_index                        │
+│    • quality_score (from chunking)                                     │
+│    • original_file_url, clickable_link                                 │
+│    • document_date (YYYY-MM-DD)                                        │
+│    • formatted citation with all metadata                              │
+│                                                                          │
+│  Format: "Title (Page N, Chunk M) | Date: YYYY-MM-DD |                 │
+│           Relevance: 0.XX | Source: filename.pdf"                      │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        RESULTS DISPLAY                                   │
+│  Rich cards with:                                                       │
+│    • Content snippet                                                    │
+│    • Citation with clickable link                                      │
+│    • Metadata chips (page, quality, date)                              │
+│    • Relevance score badge                                             │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Table Extraction Detailed Flow (PDF Only)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         PDF PAGE PROCESSING                              │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴────────────────┐
+                    ▼                                ▼
+      ┌─────────────────────────┐      ┌────────────────────────┐
+      │  1. TABLE DETECTION     │      │  2. TEXT EXTRACTION    │
+      │  pdfplumber.find_tables │      │  (Done in parallel)    │
+      └────────┬────────────────┘      └────────┬───────────────┘
+               │                                 │
+               ▼                                 │
+      ┌─────────────────────────┐               │
+      │  For each table_obj:    │               │
+      │  • Validate bbox        │               │
+      │    (not None, len≥4)    │               │
+      │  • Extract table data   │               │
+      │  • Filter empty rows    │               │
+      │  • Validate structure:  │               │
+      │    - ≥2 rows            │               │
+      │    - ≥2 columns         │               │
+      │  • Normalize columns    │               │
+      │  • Convert to markdown  │               │
+      └────────┬────────────────┘               │
+               │                                 │
+               ▼                                 │
+      ┌─────────────────────────┐               │
+      │  Valid tables ONLY:     │               │
+      │  • [TABLE N] marker     │               │
+      │  • Markdown table       │               │
+      │  • [END TABLE] marker   │               │
+      │  • Store bbox for       │               │
+      │    text filtering       │               │
+      └────────┬────────────────┘               │
+               │                                 │
+               └─────────────┬───────────────────┘
+                             ▼
+               ┌──────────────────────────────┐
+               │  3. ANTI-DUPLICATION FILTER  │
+               │  • Extract text in bands:    │
+               │    - Before first table      │
+               │    - Between tables          │
+               │    - After last table        │
+               │  • Filter chars by position: │
+               │    EXCLUDE if inside bbox    │
+               │  • Prevents text duplication │
+               └──────────────┬───────────────┘
+                              ▼
+               ┌──────────────────────────────┐
+               │  4. POSITION-BASED ASSEMBLY  │
+               │  • Sort by y-coordinate      │
+               │  • Interleave text & tables  │
+               │  • Join with \n\n            │
+               │  • Preserve document order   │
+               └──────────────┬───────────────┘
+                              ▼
+                    ┌──────────────────┐
+                    │  PAGE TEXT       │
+                    │  (Order preserved│
+                    │   No duplication)│
+                    └──────────────────┘
+```
+
+### GCS Import vs File Upload Comparison
+
+```
+┌────────────────────────────────────┬────────────────────────────────────┐
+│         FILE UPLOAD                │         GCS IMPORT                 │
+├────────────────────────────────────┼────────────────────────────────────┤
+│                                    │                                    │
+│  User selects file from computer   │  User provides GCS path            │
+│         ↓                          │         ↓                          │
+│  Frontend uploads to backend       │  Backend reads from GCS            │
+│         ↓                          │         ↓                          │
+│  Backend receives bytes            │  Backend downloads bytes           │
+│         ↓                          │         ↓                          │
+│  Parse → Chunk → Embed             │  Parse → Chunk → Embed             │
+│         ↓                          │         ↓                          │
+│  STORE ORIGINAL FILE TO GCS ✗      │  SKIP STORING ORIGINAL ✓           │
+│  (Duplicate storage ~50MB)         │  (Use existing file)               │
+│         ↓                          │         ↓                          │
+│  Store chunk JSON to GCS ✓         │  Store chunk JSON to GCS ✓         │
+│  (~1.25MB for 125 chunks)          │  (~1.25MB for 125 chunks)          │
+│         ↓                          │         ↓                          │
+│  Upsert vectors to index ✓         │  Upsert vectors to index ✓         │
+│         ↓                          │         ↓                          │
+│  Metadata includes:                │  Metadata includes:                │
+│    • gcs_chunk_url                 │    • original_file_url ✓           │
+│    • source_url                    │    • gcs_source_path ✓             │
+│    • uploaded_via: "upload"        │    • gcs_chunk_url                 │
+│                                    │    • imported_from_gcs: true       │
+│                                    │                                    │
+│  Storage: ~51.25MB per doc         │  Storage: ~1.25MB per doc          │
+│  Efficiency: ⭐⭐                   │  Efficiency: ⭐⭐⭐⭐⭐              │
+│  Best for: Small batches           │  Best for: Bulk import             │
+│                                    │           Existing GCS files       │
+└────────────────────────────────────┴────────────────────────────────────┘
+
+                        STORAGE SAVINGS EXAMPLE
+        ┌─────────────────────────────────────────────────────┐
+        │  100 PDFs @ 50MB each                               │
+        │                                                      │
+        │  File Upload:   5,125 MB (5.0 GB)                   │
+        │  GCS Import:      125 MB (0.12 GB)                  │
+        │                                                      │
+        │  Savings:       5,000 MB (4.88 GB) - 97.6% less!   │
+        └─────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -354,8 +608,8 @@ POST /temporal/extract
 ```
 agent-temporal-context/
 ├── backend/
-│   ├── agent.py                    # Claude agent with tools
 │   ├── main.py                     # FastAPI REST API
+│   ├── agent.py                    # AI agent orchestration and query processing
 │   ├── vector_search_manager.py    # Vector Search + GCS import
 │   ├── temporal_embeddings.py      # Temporal enhancement
 │   ├── text_chunker.py             # Table-aware chunking
@@ -377,33 +631,24 @@ agent-temporal-context/
 └── README.md
 ```
 
-### Adding Agent Tools
+### Adding New API Endpoints
 
-1. Define tool schema in `agent.py`:
+1. Add method to `vector_search_manager.py`:
 ```python
-self.tools.append({
-    "name": "new_tool",
-    "description": "Tool description",
-    "input_schema": {...}
-})
-```
-
-2. Implement in `execute_tool()`:
-```python
-if tool_name == "new_tool":
-    result = self.vector_search_manager.new_method(...)
+async def new_method(self, params):
+    # Implementation
     return {"success": True, "data": result}
 ```
 
-3. Add API endpoint in `main.py`:
+2. Add API endpoint in `main.py`:
 ```python
 @app.post("/new_endpoint")
 async def new_endpoint(request: NewRequest):
-    result = await agent.vector_search_manager.new_method(...)
+    result = await vector_search_manager.new_method(...)
     return {"success": True, "data": result}
 ```
 
-4. Update frontend API client in `api.js`:
+3. Update frontend API client in `api.js`:
 ```javascript
 export const newMethod = async (params) => {
   const response = await api.post('/new_endpoint', params);
@@ -553,7 +798,6 @@ gcloud config set project YOUR_PROJECT_ID
 
 **Backend:**
 - Python 3.9+, FastAPI
-- Anthropic Claude 3.5 Sonnet (ADK)
 - Google Cloud Vertex AI (Embeddings, Vector Search)
 - Google Cloud Storage
 - Pydantic Settings
@@ -564,7 +808,6 @@ gcloud config set project YOUR_PROJECT_ID
 - Axios
 
 **AI Models:**
-- Claude 3.5 Sonnet (`claude-3-5-sonnet-20241022`)
 - text-embedding-005 (768 dimensions)
 
 ---
@@ -591,7 +834,6 @@ This system provides a complete RAG solution with:
 - ✅ **Table-aware chunking** preserving data integrity
 - ✅ **Comprehensive citations** with page numbers, quality scores, and metadata
 - ✅ **Production-ready** Vector Search with configurable algorithms (BruteForce/TreeAH)
-- ✅ **Conversational interface** via Claude 3.5 Sonnet agent
 - ✅ **Modern React UI** with rich result display
 
 Perfect for building intelligent document search systems with time-sensitive information, structured data (tables), and comprehensive source tracking.

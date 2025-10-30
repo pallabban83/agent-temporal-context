@@ -168,7 +168,7 @@ function App() {
                   Temporal RAG Agent
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                  Powered by Vertex AI & Anthropic Claude
+                  Powered by Vertex AI
                 </Typography>
               </Box>
             </Box>
@@ -246,7 +246,7 @@ function App() {
         >
           <Container maxWidth="lg">
             <Typography variant="body2" align="center" sx={{ color: 'rgba(255,255,255,0.9)' }}>
-              Temporal Context RAG Agent © 2024 • Built with ❤️ using Vertex AI & Claude
+              Temporal Context RAG Agent © 2024 • Built with ❤️ using Vertex AI
             </Typography>
           </Container>
         </Box>

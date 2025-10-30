@@ -265,9 +265,9 @@ class TemporalEmbeddingHandler:
                 except ValueError:
                     continue
 
-        # Try month name + day + year format (e.g., "January 07, 2025", "JANUARY 28TH,2025", "January 28th, 2025")
+        # Try month name + day + year format (e.g., "January 07, 2025", "JANUARY 28TH,2025", "July 1st. 2025")
         if not matches['full_date']:
-            month_day_year_pattern = r'(January|February|March|April|May|June|July|August|September|October|November|December)[_\-\s,]+(\d{1,2})(?:st|nd|rd|th)?[,\s]+(\d{4})'
+            month_day_year_pattern = r'(January|February|March|April|May|June|July|August|September|October|November|December)[_\-\s,]+(\d{1,2})(?:st|nd|rd|th)?[,\s.]+(\d{4})'
             match = re.search(month_day_year_pattern, name_without_ext, re.IGNORECASE)
             if match:
                 month_name = match.group(1)

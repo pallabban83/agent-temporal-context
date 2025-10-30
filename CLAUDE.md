@@ -1,16 +1,15 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance when working with code in this repository.
 
 ## Project Overview
 
 This is a **Temporal Context Vector Search Agent** system that combines:
-- **Anthropic's Agent Development Kit (ADK)** for conversational AI capabilities
 - **Vertex AI Vector Search** for direct vector similarity search
 - **FastAPI** for the REST API backend
 - **React** for the web UI frontend
 
-The agent specializes in handling documents with temporal context (date-specific information), creating embeddings that maintain temporal awareness, and enabling time-sensitive semantic search using direct Vector Search without RAG Corpus abstraction.
+The system specializes in handling documents with temporal context (date-specific information), creating embeddings that maintain temporal awareness, and enabling time-sensitive semantic search using direct Vector Search without RAG Corpus abstraction.
 
 ## Development Commands
 
@@ -81,7 +80,7 @@ docker-compose up -d
 ### Backend Architecture
 
 1. **Agent Layer** (`agent.py`)
-   - Implements ADK-based conversational agent using Claude
+   - Implements AI agent for query processing and orchestration
    - Defines tools for document import and querying
    - Handles multi-turn conversations with tool execution
    - Main class: `TemporalRAGAgent`
@@ -179,7 +178,7 @@ This allows the embedding model to:
 - Distinguish between narrative mentions and tabular data
 - Maintain reasonable embedding sizes (context limited to 20% of chunk max)
 
-### ADK Agent Tools
+### Agent Tools
 
 The agent exposes 3 tools:
 1. `import_documents` - Batch import with temporal enhancement and direct upsert to Vector Search
@@ -478,7 +477,7 @@ The document parser (`document_parser.py`) implements a sophisticated multi-stag
 
 ## Important Files
 
-- `backend/agent.py` - ADK agent implementation with tool definitions
+- `backend/agent.py` - AI agent implementation with tool definitions
 - `backend/temporal_embeddings.py` - Temporal context extraction and embedding enhancement
 - `backend/vector_search_manager.py` - Direct Vector Search operations using find_neighbors API (includes citation formatting)
 - `backend/document_parser.py` - PDF/DOCX parsing with advanced table extraction
@@ -496,7 +495,6 @@ The document parser (`document_parser.py`) implements a sophisticated multi-stag
 Required environment variables (backend):
 - `GOOGLE_CLOUD_PROJECT` - GCP project ID
 - `GOOGLE_CLOUD_LOCATION` - GCP region (e.g., us-central1)
-- `ANTHROPIC_API_KEY` - Anthropic API key for Claude
 - `VERTEX_AI_CORPUS_NAME` - Name for the Vector Search index
 - `VECTOR_SEARCH_INDEX` - Optional pre-existing index resource name
 - `VECTOR_SEARCH_INDEX_ENDPOINT` - Optional pre-existing endpoint resource name

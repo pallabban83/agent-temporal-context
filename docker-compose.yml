@@ -10,7 +10,6 @@ services:
     environment:
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
       - GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - VERTEX_AI_CORPUS_NAME=${VERTEX_AI_CORPUS_NAME}
     volumes:
       - ./backend:/app

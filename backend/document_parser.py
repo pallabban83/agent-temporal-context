@@ -239,6 +239,15 @@ class DocumentParser:
                         logger.info(f"Found {len(table_finder)} table(s) on page {page_num + 1}")
 
                         for table_obj in table_finder:
+                            # Validate bbox before processing
+                            bbox = table_obj.bbox
+                            if not bbox or len(bbox) < 4:
+                                logger.warning(
+                                    "Skipping table with invalid bbox",
+                                    extra={'page': page_num + 1, 'bbox': bbox}
+                                )
+                                continue
+
                             # Extract table data from the table object
                             table_data = table_obj.extract()
 
@@ -254,7 +263,6 @@ class DocumentParser:
                                 table_section = f"[TABLE {global_table_num}]\n{table_markdown}\n[END TABLE]"
 
                                 # Store with y-position for sorting
-                                bbox = table_obj.bbox
                                 y_position = bbox[1]  # y0 (top of table)
                                 validated_tables.append((y_position, table_section, bbox))
                             else:
