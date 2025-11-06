@@ -40,10 +40,12 @@ class TestSuite:
 
         try:
             # Run the test script with src in Python path
+            # Capture output so we can show errors for failed tests
             result = subprocess.run(
                 [sys.executable, str(test_file)],
                 cwd=BACKEND_DIR,
-                capture_output=False,
+                capture_output=True,
+                text=True,
                 env={**os.environ, 'PYTHONPATH': str(SRC_DIR)},
                 timeout=60
             )
@@ -53,9 +55,23 @@ class TestSuite:
             if success:
                 self.passed_tests += 1
                 status = "✓ PASSED"
+                # Show output for passed tests
+                if result.stdout:
+                    print(result.stdout)
             else:
                 self.failed_tests += 1
                 status = "✗ FAILED"
+                # Show full output for failed tests
+                print("\n" + "="*80)
+                print("TEST OUTPUT:")
+                print("="*80)
+                if result.stdout:
+                    print(result.stdout)
+                if result.stderr:
+                    print("\nSTDERR:")
+                    print("-"*80)
+                    print(result.stderr)
+                print("="*80)
 
             self.results.append({
                 'name': test_file.name,
@@ -135,7 +151,17 @@ def main():
 
     suite = TestSuite()
 
-    # Define test categories and files
+    # Auto-discover all test_*.py files in test directory
+    all_test_files = sorted(TEST_DIR.glob('test_*.py'))
+
+    if not all_test_files:
+        print("\n❌ No test files found in test directory!")
+        sys.exit(1)
+
+    print(f"\nFound {len(all_test_files)} test files")
+    print("-" * 80)
+
+    # Categorize tests for better organization (optional, for display purposes)
     test_categories = {
         'Date Normalization Tests': [
             'test_ordinal_fix.py',
@@ -146,29 +172,45 @@ def main():
         'GCS Import Tests': [
             'test_gcs_import_dates.py',
             'test_metadata_creation.py',
+            'test_e2e_gcs_import.py',
         ],
         'Integration Tests': [
             'test_temporal_embedding_integration.py',
             'test_query_temporal_flow.py',
             'test_jbht_example.py',
         ],
+        'Metadata & Chunking Tests': [
+            'test_comprehensive_metadata.py',
+            'test_chunk_parameters.py',
+            'test_edge_cases.py',
+        ],
+        'PDF Processing Tests': [
+            'test_generated_pdf_validation.py',
+        ],
+        'Citation Tests': [
+            'test_citation_format.py',
+        ],
         'Validation Tests': [
             'test_bbox_validation.py',
         ],
     }
 
-    # Run tests by category
-    for category, test_files in test_categories.items():
+    # Create reverse mapping for categorization
+    file_to_category = {}
+    for category, files in test_categories.items():
+        for file_name in files:
+            file_to_category[file_name] = category
+
+    # Run all discovered tests
+    for test_file in all_test_files:
+        # Determine category (or use "Other Tests" if not categorized)
+        category = file_to_category.get(test_file.name, "Other Tests")
+
         print(f"\n\n{'#'*80}")
-        print(f"# {category}")
+        print(f"# {test_file.name} ({category})")
         print(f"{'#'*80}")
 
-        for test_file_name in test_files:
-            test_file = TEST_DIR / test_file_name
-            if test_file.exists():
-                suite.run_test_script(test_file, category)
-            else:
-                print(f"\n⚠️  SKIPPED: {test_file_name} (file not found)")
+        suite.run_test_script(test_file, category)
 
     # Print summary
     all_passed = suite.print_summary()

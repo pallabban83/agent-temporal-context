@@ -92,7 +92,8 @@ backend/
 ├── test/                         # Test suite (automated tests only)
 │   ├── __init__.py              # Test package initialization
 │   ├── conftest.py              # Pytest configuration
-│   └── test_*.py                # Test files (11 files)
+│   ├── test_*.py                # Test files (16 files)
+│   └── generate_test_pdfs.py    # Test PDF generation script
 │
 ├── scripts/                      # Utility scripts
 │   ├── check_aug27_metadata.py  # Check specific document metadata
@@ -101,7 +102,7 @@ backend/
 │   ├── cleanup_old_index.py     # Cleanup old data
 │   └── generate_test_pdfs.py    # Generate test PDF files
 │
-├── test_pdfs/                    # Test data (55 PDF files)
+├── test_pdfs/                    # Test data (60 PDF files: 55 date tests + 5 table/multi-page tests)
 │
 ├── run.sh                        # Application launcher
 ├── run_tests.sh                  # Simple test runner (bash)
@@ -142,6 +143,22 @@ End-to-end workflow tests:
 Data validation and edge cases:
 - `test_bbox_validation.py` - Bounding box validation
 
+#### 5. Comprehensive GCS Import Tests (NEW)
+Complete validation of GCS import and metadata handling:
+- `test_comprehensive_metadata.py` - All 21+ metadata fields validation
+- `test_e2e_gcs_import.py` - End-to-end GCS import simulation (10 steps)
+- `test_chunk_parameters.py` - Chunk size/overlap parameter testing
+- `test_citation_format.py` - Citation format validation (CITATION_FORMAT.md)
+- `test_edge_cases.py` - Edge cases (no dates, special chars, truncation, empty pages)
+- `generate_test_pdfs.py` - Generate test PDFs with tables and multi-page content
+
+**New Test PDFs Created:**
+- `Q2_2024_Earnings_With_Table.pdf` - Single table, 1 page
+- `Multi_Page_Report_2024.pdf` - 5 pages, 2 tables across pages
+- `Large_Table_Monthly_Data_2024.pdf` - Large table exceeding chunk_size
+- `Mixed_Content_Aug_2024.pdf` - 2 tables mixed with text
+- `Report_With_Empty_Pages_2024.pdf` - 5 pages (3 with content, 2 empty)
+
 ### Utility Scripts (scripts/)
 
 These are NOT tests but utility scripts for development and debugging:
@@ -175,6 +192,36 @@ python3 scripts/generate_test_pdfs.py
 python3 scripts/clear_index.py
 ```
 
+### What the New Tests Cover
+
+The comprehensive GCS import tests (Category 5) address previously missing test coverage:
+
+**Metadata Validation:**
+- Original test suite only validated 4 basic metadata fields
+- New tests validate all 21+ fields including:
+  - Base: filename, source, title, URLs, GCS paths
+  - PDF-specific: document_type, total_pages, non_empty_pages, has_tables, total_tables
+  - Temporal: document_date (YYYY-MM-DD format)
+  - Chunk-specific: quality_score, page_number, chunk_index, table metadata
+
+**PDF Test Cases:**
+- Original test_pdfs/ had 55 files, all single-page with no tables
+- New PDFs add multi-page documents, tables, empty pages, mixed content
+
+**Complete Workflows:**
+- End-to-end GCS import flow (10 validation steps)
+- Chunk parameter variations (size, overlap, consistency)
+- Citation format validation per CITATION_FORMAT.md spec
+- Edge cases (invalid dates, special chars, truncation, etc.)
+
+**Generate New Test PDFs:**
+```bash
+cd backend
+python test/generate_test_pdfs.py
+```
+
+This creates 5 specialized PDFs in test_pdfs/ for table and multi-page testing.
+
 ### Running Tests
 
 **Comprehensive test suite with organized output:**
@@ -192,9 +239,16 @@ Output includes:
 # Using pytest
 python3 -m pytest test/test_ordinal_fix.py -v
 
-# Direct execution
+# Direct execution (set PYTHONPATH first)
 export PYTHONPATH=src
 python3 test/test_ordinal_fix.py
+
+# Run new comprehensive tests
+python3 test/test_comprehensive_metadata.py
+python3 test/test_e2e_gcs_import.py
+python3 test/test_chunk_parameters.py
+python3 test/test_citation_format.py
+python3 test/test_edge_cases.py
 ```
 
 **Run by category using markers:**
@@ -567,6 +621,31 @@ See: `src/vector_search_manager.py:_format_citation()`
 ✅ **Import simplicity** - No complex path manipulation needed
 ✅ **Production-ready** - Logging, configuration, error handling
 ✅ **Well documented** - Inline docs and comprehensive README
+
+---
+
+## Recent Test Suite Enhancements
+
+**New Comprehensive Tests (Category 5):**
+- 5 new test files covering GCS import and metadata validation
+- 1 test PDF generation script
+- 5 new test PDFs with tables and multi-page content
+- 100% coverage of all 21+ metadata fields
+- End-to-end workflow validation
+- Citation format validation
+- Edge case testing
+
+**Test Coverage Improvements:**
+- Before: 11 test files, 55 single-page PDFs
+- After: 16 test files, 60 PDFs (including multi-page and tables)
+- Before: 4 metadata fields validated
+- After: 21+ metadata fields validated
+- Added: Complete GCS import flow testing
+- Added: Chunk parameter testing
+- Added: Citation format compliance
+- Added: Comprehensive edge case handling
+
+See **Category 5: Comprehensive GCS Import Tests** in the Test Suite section for details.
 
 ---
 

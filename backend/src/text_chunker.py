@@ -376,8 +376,13 @@ class TextChunker:
             # Decision logic for merging normal-sized chunks
             should_merge = False
 
+            # IMPORTANT: Never merge text-only chunks with table chunks
+            # This preserves the semantic distinction between narrative and tabular content
+            if current_has_table != next_has_table:
+                # One has table, other doesn't - don't merge
+                should_merge = False
             # Case 1: Current chunk is very small and doesn't end with table
-            if len(current_chunk) < self.chunk_size // 2 and not current_chunk.strip().endswith('[END TABLE]'):
+            elif len(current_chunk) < self.chunk_size // 2 and not current_chunk.strip().endswith('[END TABLE]'):
                 # Only merge if combined size is reasonable OR next is also small
                 if combined_size <= self.chunk_size * 1.5 or len(next_chunk) < self.chunk_size // 2:
                     should_merge = True
