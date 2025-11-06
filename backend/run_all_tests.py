@@ -150,6 +150,7 @@ def main():
         'Integration Tests': [
             'test_temporal_embedding_integration.py',
             'test_query_temporal_flow.py',
+            'test_jbht_example.py',
         ],
         'Validation Tests': [
             'test_bbox_validation.py',

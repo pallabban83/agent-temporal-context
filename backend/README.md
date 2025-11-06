@@ -89,13 +89,19 @@ backend/
 │   ├── document_parser.py       # PDF/DOCX parsing
 │   └── text_chunker.py         # Text chunking logic
 │
-├── test/                         # Test suite
+├── test/                         # Test suite (automated tests only)
 │   ├── __init__.py              # Test package initialization
 │   ├── conftest.py              # Pytest configuration
-│   ├── test_*.py                # Test files
-│   └── check_*.py               # Utility scripts for checking data
+│   └── test_*.py                # Test files (11 files)
 │
-├── test_pdfs/                    # Test data (PDF files)
+├── scripts/                      # Utility scripts
+│   ├── check_aug27_metadata.py  # Check specific document metadata
+│   ├── test_current_dates.py    # Check date distribution in index
+│   ├── clear_index.py           # Clear all documents from index
+│   ├── cleanup_old_index.py     # Cleanup old data
+│   └── generate_test_pdfs.py    # Generate test PDF files
+│
+├── test_pdfs/                    # Test data (55 PDF files)
 │
 ├── run.sh                        # Application launcher
 ├── run_tests.sh                  # Simple test runner (bash)
@@ -136,13 +142,38 @@ End-to-end workflow tests:
 Data validation and edge cases:
 - `test_bbox_validation.py` - Bounding box validation
 
-#### 5. Utility Scripts
-Helper scripts for checking production data:
-- `check_aug27_metadata.py` - Check specific document
-- `test_current_dates.py` - Check date distribution in index
-- `clear_index.py` - Clear vector search index
-- `cleanup_old_index.py` - Clean up old data
-- `generate_test_pdfs.py` - Generate test PDF files
+### Utility Scripts (scripts/)
+
+These are NOT tests but utility scripts for development and debugging:
+
+#### Data Inspection Scripts
+- `check_aug27_metadata.py` - Check specific document metadata in the index
+- `test_current_dates.py` - Analyze date distribution across all indexed documents
+
+#### Data Management Scripts
+- `clear_index.py` - Delete ALL documents from Vector Search index (with confirmation)
+- `cleanup_old_index.py` - Clean up old/stale data from index
+
+#### Test Data Generation
+- `generate_test_pdfs.py` - Generate 55 test PDFs with various date formats
+
+**Running utility scripts:**
+```bash
+# Set Python path
+export PYTHONPATH=src
+
+# Check document dates in index
+python3 scripts/test_current_dates.py
+
+# Check specific document
+python3 scripts/check_aug27_metadata.py
+
+# Generate test PDFs (outputs to test_pdfs/)
+python3 scripts/generate_test_pdfs.py
+
+# Clear index (requires confirmation)
+python3 scripts/clear_index.py
+```
 
 ### Running Tests
 
