@@ -295,6 +295,58 @@ class TemporalEmbeddingHandler:
                 except ValueError:
                     pass
 
+        # Try abbreviated month name + day + year format (e.g., "Aug 27, 2024", "Jan 7, 2025")
+        if not matches['full_date']:
+            abbr_month_pattern = r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,\s.]+(\d{4})'
+            match = re.search(abbr_month_pattern, name_without_ext, re.IGNORECASE)
+            if match:
+                abbr_month = match.group(1)
+                day = match.group(2)
+                year = match.group(3)
+
+                # Map abbreviated month to number
+                abbr_map = {
+                    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+                    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+                    'sep': '09', 'sept': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+                }
+                month = abbr_map.get(abbr_month.lower(), '01')
+
+                # Validate
+                try:
+                    year_int = int(year)
+                    day_int = int(day)
+                    if 1900 <= year_int <= 2100 and 1 <= day_int <= 31:
+                        matches['full_date'] = f"{year}-{month}-{day.zfill(2)}"
+                except ValueError:
+                    pass
+
+        # Try day-first format (e.g., "1st of November, 2024", "7th of January, 2025")
+        if not matches['full_date']:
+            day_first_pattern = r'(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)[,\s.]+(\d{4})'
+            match = re.search(day_first_pattern, name_without_ext, re.IGNORECASE)
+            if match:
+                day = match.group(1)
+                month_name = match.group(2)
+                year = match.group(3)
+
+                # Map month name to number
+                month_map = {
+                    'january': '01', 'february': '02', 'march': '03', 'april': '04',
+                    'may': '05', 'june': '06', 'july': '07', 'august': '08',
+                    'september': '09', 'october': '10', 'november': '11', 'december': '12'
+                }
+                month = month_map.get(month_name.lower(), '01')
+
+                # Validate
+                try:
+                    year_int = int(year)
+                    day_int = int(day)
+                    if 1900 <= year_int <= 2100 and 1 <= day_int <= 31:
+                        matches['full_date'] = f"{year}-{month}-{day.zfill(2)}"
+                except ValueError:
+                    pass
+
         # 2. Fiscal quarter patterns
         quarter_patterns = [
             r'Q([1-4])[_\-\s]*(?:FY[_\-\s]*)?(\d{4})',  # Q1_2023, Q1-2023, Q1 FY 2023, Q12023
@@ -427,16 +479,17 @@ class TemporalEmbeddingHandler:
         try:
             # Try dateutil parser for flexible parsing
             from dateutil import parser as date_parser
+            import re
 
-            # Remove ordinal suffixes (st, nd, rd, th) for better parsing
-            cleaned = date_string.replace('st,', ',').replace('nd,', ',').replace('rd,', ',').replace('th,', ',')
-            cleaned = cleaned.replace('st ', ' ').replace('nd ', ' ').replace('rd ', ' ').replace('th ', ' ')
-            cleaned = cleaned.replace('st.', ' ').replace('nd.', ' ').replace('rd.', ' ').replace('th.', ' ')  # Convert period to space
+            # Remove ordinal suffixes (st, nd, rd, th) ONLY when they follow digits
+            # This prevents removing "st" from "August" or "nd" from other words
+            cleaned = date_string
+
+            # Remove ordinals after digits: 1st, 2nd, 3rd, 21st, 22nd, 23rd, 31st, etc.
+            cleaned = re.sub(r'(\d+)(st|nd|rd|th)([,.\s])', r'\1\3', cleaned)
 
             # Replace periods with spaces when they separate date components (but not in abbreviated months like "Jan.")
-            # This handles cases like "January 7th.2025" -> "January 7th 2025"
-            import re
-            # Replace period followed by digit (year) with space and digit
+            # This handles cases like "January 7.2025" -> "January 7 2025"
             cleaned = re.sub(r'\.(\d{4})', r' \1', cleaned)
 
             # Parse the date

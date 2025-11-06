@@ -5,6 +5,7 @@ import {
   Button,
   Typography,
   CircularProgress,
+  LinearProgress,
   Alert,
   Card,
   CardContent,
@@ -32,12 +33,14 @@ function DocumentImporter() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]); // Changed to array for multiple files
   const [chunkSize, setChunkSize] = useState(1000);
   const [chunkOverlap, setChunkOverlap] = useState(200);
   const [gcsPath, setGcsPath] = useState('');
   const [gcsRecursive, setGcsRecursive] = useState(true);
   const [gcsResults, setGcsResults] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [gcsImporting, setGcsImporting] = useState(false);
 
   const handleAddDocument = () => {
     if (!currentDoc.content.trim()) {
@@ -92,12 +95,18 @@ function DocumentImporter() {
   };
 
   const handleFileChange = (event) => {
-    setFile(event.target.files[0]);
+    const selectedFiles = Array.from(event.target.files);
+    setFiles(selectedFiles);
+    setError(null);
+  };
+
+  const handleRemoveFile = (index) => {
+    setFiles(files.filter((_, i) => i !== index));
   };
 
   const handleUploadFile = async () => {
-    if (!file) {
-      setError('Please select a file');
+    if (files.length === 0) {
+      setError('Please select at least one file');
       return;
     }
 
@@ -110,28 +119,60 @@ function DocumentImporter() {
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setUploadProgress({ current: 0, total: files.length });
+
+    const successfulUploads = [];
+    const failedUploads = [];
 
     try {
-      const response = await uploadDocument(
-        file,
-        documentDate || null,
-        chunkSize,
-        chunkOverlap
-      );
+      // Upload files sequentially
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress({ current: i + 1, total: files.length });
 
-      if (response.success) {
-        setSuccess(`Successfully uploaded ${file.name}! (Chunk size: ${chunkSize}, Overlap: ${chunkOverlap})`);
-        setFile(null);
+        try {
+          const response = await uploadDocument(
+            file,
+            documentDate || null,
+            chunkSize,
+            chunkOverlap
+          );
+
+          if (response.success) {
+            successfulUploads.push(file.name);
+          } else {
+            failedUploads.push({ name: file.name, error: 'Upload failed' });
+          }
+        } catch (err) {
+          failedUploads.push({ name: file.name, error: err.message });
+        }
+      }
+
+      // Show results
+      if (successfulUploads.length > 0) {
+        setSuccess(
+          `Successfully uploaded ${successfulUploads.length} of ${files.length} file(s)! (Chunk size: ${chunkSize}, Overlap: ${chunkOverlap})`
+        );
+      }
+
+      if (failedUploads.length > 0) {
+        setError(
+          `Failed to upload ${failedUploads.length} file(s): ${failedUploads.map(f => f.name).join(', ')}`
+        );
+      }
+
+      // Clear files if all successful
+      if (failedUploads.length === 0) {
+        setFiles([]);
         setDocumentDate('');
         // Reset file input
         document.getElementById('file-upload').value = '';
-      } else {
-        setError('Failed to upload file');
       }
     } catch (err) {
       setError(`Error: ${err.message}`);
     } finally {
       setLoading(false);
+      setUploadProgress({ current: 0, total: 0 });
     }
   };
 
@@ -153,6 +194,7 @@ function DocumentImporter() {
     }
 
     setLoading(true);
+    setGcsImporting(true);
     setError(null);
     setSuccess(null);
     setGcsResults(null);
@@ -162,9 +204,23 @@ function DocumentImporter() {
 
       if (response.success) {
         setGcsResults(response.data);
-        setSuccess(
-          `Successfully imported ${response.data.files_imported} of ${response.data.files_found} files from GCS (Chunk size: ${chunkSize}, Overlap: ${chunkOverlap})`
-        );
+
+        const successCount = response.data.files_imported || 0;
+        const totalCount = response.data.files_found || 0;
+        const failCount = response.data.files_failed || 0;
+
+        if (successCount > 0) {
+          setSuccess(
+            `Successfully imported ${successCount} of ${totalCount} file${totalCount > 1 ? 's' : ''} from GCS! ` +
+            `(Chunk size: ${chunkSize}, Overlap: ${chunkOverlap})` +
+            (failCount > 0 ? ` | ${failCount} file${failCount > 1 ? 's' : ''} failed` : '')
+          );
+        }
+
+        if (failCount > 0 && successCount === 0) {
+          setError(`Failed to import all ${totalCount} file${totalCount > 1 ? 's' : ''} from GCS`);
+        }
+
         setGcsPath('');
         setDocumentDate('');
       } else {
@@ -174,6 +230,7 @@ function DocumentImporter() {
       setError(`Error: ${err.message}`);
     } finally {
       setLoading(false);
+      setGcsImporting(false);
     }
   };
 
@@ -218,6 +275,7 @@ function DocumentImporter() {
                 accept=".pdf,.docx,.txt,.md,.json"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
+                multiple
               />
               <label htmlFor="file-upload">
                 <Button
@@ -226,17 +284,40 @@ function DocumentImporter() {
                   fullWidth
                   startIcon={<CloudUploadIcon />}
                 >
-                  Choose File
+                  Choose Files
                 </Button>
               </label>
 
-              {file && (
-                <Chip
-                  label={file.name}
-                  onDelete={() => setFile(null)}
-                  sx={{ mt: 1 }}
-                  color="primary"
-                />
+              {files.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Selected Files ({files.length}):
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {files.map((file, index) => (
+                      <Chip
+                        key={index}
+                        label={file.name}
+                        onDelete={() => handleRemoveFile(index)}
+                        color="primary"
+                        size="small"
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              {loading && uploadProgress.total > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Uploading {uploadProgress.current} of {uploadProgress.total} files...
+                  </Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={(uploadProgress.current / uploadProgress.total) * 100}
+                    sx={{ mt: 1 }}
+                  />
+                </Box>
               )}
 
               <TextField
@@ -283,11 +364,15 @@ function DocumentImporter() {
                 fullWidth
                 variant="contained"
                 onClick={handleUploadFile}
-                disabled={loading || !file}
+                disabled={loading || files.length === 0}
                 sx={{ mt: 2 }}
                 startIcon={loading ? <CircularProgress size={20} /> : <UploadFileIcon />}
               >
-                {loading ? 'Uploading...' : 'Upload & Import'}
+                {loading
+                  ? `Uploading ${uploadProgress.current}/${uploadProgress.total}...`
+                  : files.length > 0
+                  ? `Upload & Import ${files.length} File${files.length > 1 ? 's' : ''}`
+                  : 'Upload & Import'}
               </Button>
             </CardContent>
           </Card>
@@ -417,6 +502,18 @@ function DocumentImporter() {
                 </label>
               </Box>
 
+              {gcsImporting && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Scanning and importing files from GCS...
+                  </Typography>
+                  <LinearProgress />
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    This may take a while depending on the number of files
+                  </Typography>
+                </Box>
+              )}
+
               <Button
                 fullWidth
                 variant="contained"
@@ -424,60 +521,94 @@ function DocumentImporter() {
                 disabled={loading}
                 startIcon={loading ? <CircularProgress size={20} /> : <CloudIcon />}
               >
-                {loading ? 'Importing from GCS...' : 'Import from GCS'}
+                {gcsImporting ? 'Importing from GCS...' : 'Import from GCS'}
               </Button>
 
               {/* Results Display */}
               {gcsResults && (
                 <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Import Summary:
+                  <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                    Import Summary
                   </Typography>
-                  <Typography variant="body2">
-                    • Files found: {gcsResults.files_found}
-                  </Typography>
-                  <Typography variant="body2">
-                    • Files imported: {gcsResults.files_imported}
-                  </Typography>
-                  <Typography variant="body2">
-                    • Files failed: {gcsResults.files_failed}
-                  </Typography>
+                  <Grid container spacing={2} sx={{ mt: 1 }}>
+                    <Grid item xs={4}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h4" color="primary">
+                          {gcsResults.files_found || 0}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Found
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h4" color="success.main">
+                          {gcsResults.files_imported || 0}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Imported
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="h4" color="error.main">
+                          {gcsResults.files_failed || 0}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Failed
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
 
                   {gcsResults.imported_files && gcsResults.imported_files.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Imported Files:
+                    <Box sx={{ mt: 3 }}>
+                      <Typography variant="subtitle2" color="success.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                        Successfully Imported ({gcsResults.imported_files.length})
                       </Typography>
-                      <List dense>
-                        {gcsResults.imported_files.map((file, idx) => (
-                          <ListItem key={idx}>
-                            <ListItemText
-                              primary={file.filename}
-                              secondary={`${file.chunks_created} chunks created`}
+                      <Box sx={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #e0e0e0', borderRadius: 1, p: 1 }}>
+                        {gcsResults.imported_files.slice(0, 10).map((file, idx) => (
+                          <Box key={idx} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 0.5 }}>
+                            <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {file.filename}
+                            </Typography>
+                            <Chip
+                              label={`${file.chunks_created} chunks`}
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ ml: 1 }}
                             />
-                            <Chip label="Success" size="small" color="success" />
-                          </ListItem>
+                          </Box>
                         ))}
-                      </List>
+                        {gcsResults.imported_files.length > 10 && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                            ... and {gcsResults.imported_files.length - 10} more
+                          </Typography>
+                        )}
+                      </Box>
                     </Box>
                   )}
 
                   {gcsResults.failed_files && gcsResults.failed_files.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="caption" color="error">
-                        Failed Files:
+                    <Box sx={{ mt: 3 }}>
+                      <Typography variant="subtitle2" color="error.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                        Failed Files ({gcsResults.failed_files.length})
                       </Typography>
-                      <List dense>
+                      <Box sx={{ maxHeight: 200, overflowY: 'auto', border: '1px solid #ffcdd2', borderRadius: 1, p: 1, backgroundColor: '#fff5f5' }}>
                         {gcsResults.failed_files.map((file, idx) => (
-                          <ListItem key={idx}>
-                            <ListItemText
-                              primary={file.filename}
-                              secondary={file.error}
-                            />
-                            <Chip label="Failed" size="small" color="error" />
-                          </ListItem>
+                          <Box key={idx} sx={{ py: 0.5, borderBottom: idx < gcsResults.failed_files.length - 1 ? '1px solid #ffebee' : 'none' }}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              {file.filename}
+                            </Typography>
+                            <Typography variant="caption" color="error.main">
+                              {file.error}
+                            </Typography>
+                          </Box>
                         ))}
-                      </List>
+                      </Box>
                     </Box>
                   )}
                 </Box>

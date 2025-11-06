@@ -514,7 +514,7 @@ class VectorSearchManager:
         return any(keyword in query_lower for keyword in temporal_keywords)
 
     def _extract_temporal_filter_from_query(self, query_text: str) -> Optional[Dict[str, Any]]:
-        """Extract temporal filter criteria from query text."""
+        """Extract temporal filter criteria from query text with date normalization."""
         temporal_entities = self.embedding_handler.extract_temporal_info(query_text)
 
         if not temporal_entities:
@@ -526,8 +526,17 @@ class VectorSearchManager:
         filter_criteria = {}
 
         if dates:
-            filter_criteria['document_date'] = dates[0]
-            logger.info(f"Extracted date filter: {dates[0]}")
+            # Normalize the date to YYYY-MM-DD format for consistent filtering
+            raw_date = dates[0]
+            normalized_date = self.embedding_handler._normalize_date(raw_date)
+
+            if normalized_date:
+                filter_criteria['document_date'] = normalized_date
+                logger.info(f"Extracted date filter: {raw_date} -> normalized: {normalized_date}")
+            else:
+                # If normalization fails, use raw date
+                filter_criteria['document_date'] = raw_date
+                logger.warning(f"Could not normalize date filter: {raw_date}, using as-is")
         elif years:
             year = max(years)
             filter_criteria['year'] = str(year)
