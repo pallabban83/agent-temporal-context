@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     log_colors: bool = True  # Enable colored output for logfmt format
 
     class Config:
-        env_file = ".env"
+        env_file = "../.env"
         case_sensitive = False
 
 
