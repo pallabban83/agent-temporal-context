@@ -153,8 +153,12 @@ class TemporalEmbeddingHandler:
         date_patterns = [
             (r'\b\d{4}-\d{2}-\d{2}\b', 'date'),  # YYYY-MM-DD
             (r'\b\d{1,2}/\d{1,2}/\d{4}\b', 'date'),  # M/D/YYYY or MM/DD/YYYY
-            (r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b', 'date'),
-            (r'\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b', 'date'),
+            # Full month names with optional ordinals (st, nd, rd, th) and flexible separators (comma, period, space)
+            (r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?[,.\s]+\d{4}\b', 'date'),
+            # Abbreviated month names (Jan, Feb, etc.) with optional ordinals and flexible separators
+            (r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?[,.\s]+\d{4}\b', 'date'),
+            # Day first format (7 January 2025, 7th of January 2025)
+            (r'\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)[,.\s]+\d{4}\b', 'date'),
         ]
 
         # Fiscal and quarter patterns
@@ -399,6 +403,73 @@ class TemporalEmbeddingHandler:
 
         return None
 
+    def _normalize_date(self, date_string: str) -> Optional[str]:
+        """Normalize a date string to YYYY-MM-DD format.
+
+        Handles various date formats:
+        - "January 7, 2025" -> "2025-01-07"
+        - "Jan 7, 2025" -> "2025-01-07"
+        - "01/07/2025" -> "2025-01-07"
+        - "2025-01-07" -> "2025-01-07" (already normalized)
+        - "January 7th, 2025" -> "2025-01-07"
+        - "7 January 2025" -> "2025-01-07"
+        - "January 7th.2025" -> "2025-01-07"
+
+        Args:
+            date_string: Date string in various formats
+
+        Returns:
+            Normalized date in YYYY-MM-DD format, or None if parsing fails
+        """
+        if not date_string:
+            return None
+
+        try:
+            # Try dateutil parser for flexible parsing
+            from dateutil import parser as date_parser
+
+            # Remove ordinal suffixes (st, nd, rd, th) for better parsing
+            cleaned = date_string.replace('st,', ',').replace('nd,', ',').replace('rd,', ',').replace('th,', ',')
+            cleaned = cleaned.replace('st ', ' ').replace('nd ', ' ').replace('rd ', ' ').replace('th ', ' ')
+            cleaned = cleaned.replace('st.', ' ').replace('nd.', ' ').replace('rd.', ' ').replace('th.', ' ')  # Convert period to space
+
+            # Replace periods with spaces when they separate date components (but not in abbreviated months like "Jan.")
+            # This handles cases like "January 7th.2025" -> "January 7th 2025"
+            import re
+            # Replace period followed by digit (year) with space and digit
+            cleaned = re.sub(r'\.(\d{4})', r' \1', cleaned)
+
+            # Parse the date
+            parsed_date = date_parser.parse(cleaned, fuzzy=False)
+
+            # Return in YYYY-MM-DD format
+            normalized = parsed_date.strftime('%Y-%m-%d')
+
+            logger.debug(
+                "Normalized date",
+                extra={
+                    'original': date_string,
+                    'normalized': normalized
+                }
+            )
+
+            return normalized
+
+        except Exception as e:
+            # If parsing fails, check if it's already in YYYY-MM-DD format
+            import re
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', date_string):
+                return date_string
+
+            logger.debug(
+                "Could not normalize date",
+                extra={
+                    'date_string': date_string,
+                    'error': str(e)
+                }
+            )
+            return None
+
     def enhance_text_with_temporal_context(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Enhance text with comprehensive temporal context markers.
 
@@ -438,7 +509,19 @@ class TemporalEmbeddingHandler:
 
             # Add unique temporal references (limit to top 3 of each type for brevity)
             if dates:
-                temporal_context.append(f"Dates: {', '.join(list(set(dates))[:3])}")
+                # Normalize dates to YYYY-MM-DD format for consistent embeddings
+                normalized_dates = []
+                for date in dates:
+                    normalized = self._normalize_date(date)
+                    if normalized:
+                        normalized_dates.append(normalized)
+                    else:
+                        # If normalization fails, keep original
+                        normalized_dates.append(date)
+
+                # Remove duplicates and limit to top 3
+                unique_normalized_dates = list(set(normalized_dates))[:3]
+                temporal_context.append(f"Dates: {', '.join(unique_normalized_dates)}")
             if fiscal_quarters:
                 # Add table context if available
                 table_quarters = [e for e in temporal_entities if e['type'] == 'fiscal_quarter' and e.get('context')]
@@ -449,7 +532,20 @@ class TemporalEmbeddingHandler:
             if fiscal_years:
                 temporal_context.append(f"Fiscal Years: {', '.join(list(set(fiscal_years))[:3])}")
             if month_years:
-                temporal_context.append(f"Periods: {', '.join(list(set(month_years))[:3])}")
+                # Normalize month-year to YYYY-MM format for consistent embeddings
+                normalized_month_years = []
+                for month_year in month_years:
+                    normalized = self._normalize_date(f"{month_year}-01")  # Add day for parsing
+                    if normalized:
+                        # Extract YYYY-MM from normalized date
+                        normalized_month_years.append(normalized[:7])  # YYYY-MM
+                    else:
+                        # If normalization fails, keep original
+                        normalized_month_years.append(month_year)
+
+                # Remove duplicates and limit to top 3
+                unique_normalized_month_years = list(set(normalized_month_years))[:3]
+                temporal_context.append(f"Periods: {', '.join(unique_normalized_month_years)}")
             if relative_dates:
                 temporal_context.append(f"References: {', '.join(list(set(relative_dates))[:2])}")
             # Only add years if not already captured in other patterns (dates, month_years, fiscal_years)
